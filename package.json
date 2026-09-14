@@ -1,0 +1,19 @@
+{
+  "name": "nfc-lambda",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NFC Lambda functions for Slack integration and SQS messaging",
+  "type": "module",
+  "main": "nfc2sqs/nfc2sqs.mjs",
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "deploy": "bash deploy.sh",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check nfc2sqs/nfc2sqs.mjs && node --check sqs2nfc/sqs2nfc.mjs && node --check lambda-layer/nodejs/ssm-secrets.mjs && bash -n deploy.sh scripts/*.sh infrastructure/*.sh"
+  },
+  "keywords": ["aws", "lambda", "nfc", "slack", "sqs"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

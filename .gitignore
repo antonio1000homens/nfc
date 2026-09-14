@@ -1,0 +1,13 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+config/bootstrap-ssm-migration.env
+node_modules/
+lambda-layer/nodejs/node_modules/
+dist/
+*.zip
+*.log
+.aws-sam/
+.cfn-lint-cache/
+migration-backup/

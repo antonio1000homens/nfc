@@ -1,0 +1,227 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Least-privilege GitHub Actions OIDC deployment role for the NFC repository.
+
+Parameters:
+  CodeBucketName:
+    Type: String
+    MinLength: 3
+    Description: Existing private S3 bucket used for NFC deployment artifacts.
+  ArtifactPrefix:
+    Type: String
+    Default: nfc
+  DeploymentRoleName:
+    Type: String
+    Default: GitHubActionsNfcDeployRole
+  NfcStackName:
+    Type: String
+    Default: nfc
+  NfcQueueName:
+    Type: String
+    Default: nfc
+  Nfc2SqsFunctionName:
+    Type: String
+    Default: nfc2sqs
+  Nfc2SqsLayerName:
+    Type: String
+    Default: nfc2sqs-layer
+  Nfc2SqsRoleName:
+    Type: String
+    Default: nfc2sqs-lambda-role
+  Sqs2NfcFunctionName:
+    Type: String
+    Default: sqs2nfc
+  Sqs2NfcLayerName:
+    Type: String
+    Default: sqs2nfc-layer
+  Sqs2NfcRoleName:
+    Type: String
+    Default: sqs2nfc-lambda-role
+  RequiredApiKeyParameter:
+    Type: String
+    Default: /lambdas/nfc/required-api-key
+  SlackBotTokenParameter:
+    Type: String
+    Default: /lambdas/shared/slack-bot-token
+  GoogleServiceAccountParameter:
+    Type: String
+    Default: /lambdas/nfc/sqs2nfc/google-service-account
+
+Resources:
+  NfcDeploymentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref DeploymentRoleName
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'token.actions.githubusercontent.com:aud': sts.amazonaws.com
+                'token.actions.githubusercontent.com:sub': repo:antonio1000homens@36929120/nfc@1369987812:environment:production
+      Policies:
+        - PolicyName: nfc-deployment
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: PackageNfcArtifacts
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::${CodeBucketName}/${ArtifactPrefix}/*
+
+              - Sid: InspectCodeBucket
+                Effect: Allow
+                Action: s3:GetBucketLocation
+                Resource: !Sub arn:${AWS::Partition}:s3:::${CodeBucketName}
+
+              - Sid: ListNfcArtifacts
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub arn:${AWS::Partition}:s3:::${CodeBucketName}
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - !Sub ${ArtifactPrefix}/*
+
+              - Sid: ManageNfcStack
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResource
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:GetTemplate
+                  - cloudformation:ListStackResources
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${NfcStackName}/*
+
+              - Sid: ValidateTemplates
+                Effect: Allow
+                Action:
+                  - cloudformation:ValidateTemplate
+                  - cloudformation:GetTemplateSummary
+                Resource: '*'
+
+              - Sid: ManageNfcFunctions
+                Effect: Allow
+                Action:
+                  - lambda:CreateFunction
+                  - lambda:DeleteFunction
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetPolicy
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:AddPermission
+                  - lambda:RemovePermission
+                  - lambda:CreateFunctionUrlConfig
+                  - lambda:UpdateFunctionUrlConfig
+                  - lambda:DeleteFunctionUrlConfig
+                  - lambda:GetFunctionUrlConfig
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:ListTags
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Nfc2SqsFunctionName}
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${Sqs2NfcFunctionName}
+
+              - Sid: PublishNfcLayers
+                Effect: Allow
+                Action: lambda:PublishLayerVersion
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:${Nfc2SqsLayerName}
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:${Sqs2NfcLayerName}
+
+              - Sid: ManageNfcLayerVersions
+                Effect: Allow
+                Action:
+                  - lambda:GetLayerVersion
+                  - lambda:DeleteLayerVersion
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:${Nfc2SqsLayerName}:*
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:${Sqs2NfcLayerName}:*
+
+              - Sid: ManageNfcEventSourceMapping
+                Effect: Allow
+                Action:
+                  - lambda:CreateEventSourceMapping
+                  - lambda:GetEventSourceMapping
+                  - lambda:UpdateEventSourceMapping
+                  - lambda:DeleteEventSourceMapping
+                Resource: '*'
+
+              - Sid: ManageNfcQueue
+                Effect: Allow
+                Action:
+                  - sqs:CreateQueue
+                  - sqs:DeleteQueue
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - sqs:SetQueueAttributes
+                  - sqs:TagQueue
+                  - sqs:UntagQueue
+                  - sqs:ListQueueTags
+                Resource: !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${NfcQueueName}
+
+              - Sid: ManageNfcRuntimeRoles
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:ListAttachedRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${Nfc2SqsRoleName}
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${Sqs2NfcRoleName}
+
+              - Sid: ManageNfcLogGroups
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:PutRetentionPolicy
+                  - logs:DeleteRetentionPolicy
+                  - logs:TagResource
+                  - logs:UntagResource
+                  - logs:ListTagsForResource
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${Nfc2SqsFunctionName}*
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${Sqs2NfcFunctionName}*
+
+              - Sid: ReadNfcRuntimeParameters
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${RequiredApiKeyParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SlackBotTokenParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GoogleServiceAccountParameter}
+
+Outputs:
+  DeploymentRoleArn:
+    Description: Configure this ARN as AWS_ROLE_TO_ASSUME in the protected production GitHub environment.
+    Value: !GetAtt NfcDeploymentRole.Arn
