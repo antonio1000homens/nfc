@@ -1,0 +1,141 @@
+name: Deploy NFC
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Create a CloudFormation plan or deploy production'
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - deploy
+      confirm_deploy:
+        description: 'Required when operation=deploy'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: nfc-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      ${{
+        (
+          github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'master' &&
+          github.event.workflow_run.head_repository.full_name == github.repository
+        ) ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          github.ref == 'refs/heads/master' &&
+          (inputs.operation == 'plan' || (inputs.operation == 'deploy' && inputs.confirm_deploy == true))
+        )
+      }}
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-2' }}
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      PLAN_ONLY: ${{ github.event_name == 'workflow_run' && 'false' || (inputs.operation == 'plan' && 'true' || 'false') }}
+      STACK_NAME: ${{ vars.STACK_NAME || 'nfc' }}
+      S3_PREFIX: ${{ vars.S3_PREFIX || 'nfc' }}
+      SPREADSHEET_ID: ${{ vars.SPREADSHEET_ID }}
+      REQUIRED_API_KEY_PARAMETER: ${{ vars.REQUIRED_API_KEY_PARAMETER || '/lambdas/nfc/required-api-key' }}
+      SLACK_BOT_TOKEN_PARAMETER: ${{ vars.SLACK_BOT_TOKEN_PARAMETER || '/lambdas/shared/slack-bot-token' }}
+      GOOGLE_SERVICE_ACCOUNT_PARAMETER: ${{ vars.GOOGLE_SERVICE_ACCOUNT_PARAMETER || '/lambdas/nfc/sqs2nfc/google-service-account' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Verify automatic deployment targets current master
+        if: ${{ github.event_name == 'workflow_run' }}
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin master
+          current_master="$(git rev-parse origin/master)"
+          if [[ "${TESTED_SHA}" != "${current_master}" ]]; then
+            echo "Refusing stale automatic deployment: tested SHA is no longer current master." >&2
+            exit 1
+          fi
+
+      - name: Check public source boundary
+        run: bash scripts/check-public-source.sh
+
+      - name: Verify production deployment configuration exists
+        env:
+          AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          CODE_BUCKET: ${{ vars.CODE_BUCKET }}
+        run: |
+          test -n "${AWS_ROLE_TO_ASSUME}" || { echo 'AWS_ROLE_TO_ASSUME must be configured in the production environment.' >&2; exit 1; }
+          test -n "${CODE_BUCKET}" || { echo 'CODE_BUCKET must be configured in the production environment.' >&2; exit 1; }
+          test -n "${SPREADSHEET_ID}" || { echo 'SPREADSHEET_ID must be configured in the production environment.' >&2; exit 1; }
+
+      - name: Download CI-tested build
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/download-artifact@v5
+        with:
+          name: nfc-build
+          path: dist
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: lambda-layer/nodejs/package-lock.json
+
+      - uses: aws-actions/setup-sam@v3
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        with:
+          use-installer: true
+          token: ${{ github.token }}
+
+      - name: Build and test manual deployment
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          npm run build
+          npm test
+          npm run check
+          sam validate --lint --template infrastructure/nfc.yaml
+          sam validate --lint --template infrastructure/github-actions-deploy-role.yaml
+
+      - name: Verify deployment artifacts
+        run: |
+          test -s dist/nfc2sqs-lambda.zip
+          test -s dist/sqs2nfc-lambda.zip
+          test -s dist/lambda-layer.zip
+
+      - name: Configure NFC-only AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.0.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          role-session-name: github-actions-nfc-production
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: ${{ env.PLAN_ONLY == 'true' && 'Plan NFC stack changes' || 'Deploy NFC stack' }}
+        env:
+          CODE_BUCKET: ${{ vars.CODE_BUCKET }}
+          SKIP_BUILD: 'true'
+        run: bash ./deploy.sh
