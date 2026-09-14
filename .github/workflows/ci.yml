@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  public-source-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Check public source boundary
+        run: bash scripts/check-public-source.sh
+
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: lambda-layer/nodejs/package-lock.json
+      - name: Build deployment artifacts
+        run: npm run build
+      - name: Run tests
+        run: npm test
+      - name: Syntax check
+        run: npm run check
+      - name: Validate package contents
+        run: |
+          unzip -l dist/nfc2sqs-lambda.zip | grep -Fq 'nfc2sqs/nfc2sqs.mjs'
+          unzip -l dist/sqs2nfc-lambda.zip | grep -Fq 'sqs2nfc/sqs2nfc.mjs'
+          unzip -l dist/lambda-layer.zip | grep -Fq 'nodejs/ssm-secrets.mjs'
+          unzip -l dist/lambda-layer.zip | grep -Fq 'nodejs/node_modules/@aws-sdk/client-ssm/'
+          unzip -l dist/lambda-layer.zip | grep -Fq 'nodejs/node_modules/googleapis/'
+      - name: Test bootstrap scripts
+        run: |
+          bash scripts/test-bootstrap-ssm-migration-portability.sh
+          bash infrastructure/test-bootstrap-ssm-secrets-access.sh
+      - name: Publish tested NFC build
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfc-build
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: aws-actions/setup-sam@v3
+        with:
+          use-installer: true
+          token: ${{ github.token }}
+      - name: Validate NFC CloudFormation template
+        run: sam validate --lint --template infrastructure/nfc.yaml
+      - name: Validate GitHub deployment-role template
+        run: sam validate --lint --template infrastructure/github-actions-deploy-role.yaml
+      - name: Check migration bootstrap help
+        run: bash scripts/bootstrap-ssm-migration.sh --help >/dev/null
