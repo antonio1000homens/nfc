@@ -1,0 +1,284 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Consolidated NFC stack (queue, ingress and consumer Lambdas, layers, IAM, URL, and event source mapping)
+
+Parameters:
+  CodeBucket:
+    Type: String
+    Description: S3 bucket that stores Lambda artifacts.
+  Nfc2SqsFunctionCodeKey:
+    Type: String
+    Description: S3 key for the nfc2sqs function zip.
+  Nfc2SqsLayerCodeKey:
+    Type: String
+    Description: S3 key for the nfc2sqs layer zip.
+  Sqs2NfcFunctionCodeKey:
+    Type: String
+    Description: S3 key for the sqs2nfc function zip.
+  Sqs2NfcLayerCodeKey:
+    Type: String
+    Description: S3 key for the sqs2nfc layer zip.
+  NfcQueueName:
+    Type: String
+    Default: nfc
+  Nfc2SqsFunctionName:
+    Type: String
+    Default: nfc2sqs
+  Nfc2SqsLayerName:
+    Type: String
+    Default: nfc2sqs-layer
+  Nfc2SqsRoleName:
+    Type: String
+    Default: nfc2sqs-lambda-role
+  Sqs2NfcFunctionName:
+    Type: String
+    Default: sqs2nfc
+  Sqs2NfcLayerName:
+    Type: String
+    Default: sqs2nfc-layer
+  Sqs2NfcRoleName:
+    Type: String
+    Default: sqs2nfc-lambda-role
+  Runtime:
+    Type: String
+    Default: nodejs24.x
+  Nfc2SqsHandler:
+    Type: String
+    Default: nfc2sqs/nfc2sqs.lambdaHandler
+  Sqs2NfcHandler:
+    Type: String
+    Default: sqs2nfc/sqs2nfc.lambdaHandler
+  Nfc2SqsTimeout:
+    Type: Number
+    Default: 30
+  Nfc2SqsMemorySize:
+    Type: Number
+    Default: 256
+  Sqs2NfcTimeout:
+    Type: Number
+    Default: 30
+  Sqs2NfcMemorySize:
+    Type: Number
+    Default: 512
+  FunctionUrlAuthType:
+    Type: String
+    AllowedValues:
+      - NONE
+      - AWS_IAM
+    Default: NONE
+  RequiredApiKeyParameter:
+    Type: String
+    Default: /lambdas/nfc/required-api-key
+  SlackBotTokenParameter:
+    Type: String
+    Default: /lambdas/shared/slack-bot-token
+  GoogleServiceAccountParameter:
+    Type: String
+    Default: /lambdas/nfc/sqs2nfc/google-service-account
+  SpreadsheetId:
+    Type: String
+    Default: ''
+    Description: Non-secret Google spreadsheet identifier supplied by deployment configuration.
+  NfcSlackChannel:
+    Type: String
+    Default: '#nfc'
+  Sqs2NfcBatchSize:
+    Type: Number
+    Default: 1
+
+Conditions:
+  IsPublicFunctionUrl: !Equals [!Ref FunctionUrlAuthType, 'NONE']
+
+Resources:
+  NfcQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Ref NfcQueueName
+
+  Nfc2SqsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref Nfc2SqsRoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: Nfc2SqsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt NfcQueue.Arn
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${RequiredApiKeyParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SlackBotTokenParameter}
+
+  Nfc2SqsLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Ref Nfc2SqsLayerName
+      CompatibleRuntimes:
+        - !Ref Runtime
+      Content:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref Nfc2SqsLayerCodeKey
+
+  Nfc2SqsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref Nfc2SqsFunctionName
+      Runtime: !Ref Runtime
+      Handler: !Ref Nfc2SqsHandler
+      Role: !GetAtt Nfc2SqsRole.Arn
+      Timeout: !Ref Nfc2SqsTimeout
+      MemorySize: !Ref Nfc2SqsMemorySize
+      Layers:
+        - !Ref Nfc2SqsLayer
+      Environment:
+        Variables:
+          REQUIRED_API_KEY_PARAMETER: !Ref RequiredApiKeyParameter
+          SQS_QUEUE_URL: !Ref NfcQueue
+          NFC_SLACK_CHANNEL: !Ref NfcSlackChannel
+          SLACK_BOT_TOKEN_PARAMETER: !Ref SlackBotTokenParameter
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref Nfc2SqsFunctionCodeKey
+
+  Nfc2SqsFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !Ref Nfc2SqsFunction
+      AuthType: !Ref FunctionUrlAuthType
+      Cors:
+        AllowCredentials: false
+        AllowHeaders:
+          - '*'
+        AllowMethods:
+          - '*'
+        AllowOrigins:
+          - '*'
+        ExposeHeaders:
+          - '*'
+        MaxAge: 86400
+
+  Nfc2SqsUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: IsPublicFunctionUrl
+    Properties:
+      FunctionName: !Ref Nfc2SqsFunction
+      Principal: '*'
+      Action: lambda:InvokeFunctionUrl
+      FunctionUrlAuthType: NONE
+
+  Nfc2SqsInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Condition: IsPublicFunctionUrl
+    Properties:
+      FunctionName: !Ref Nfc2SqsFunction
+      Principal: '*'
+      Action: lambda:InvokeFunction
+      InvokedViaFunctionUrl: true
+
+  Sqs2NfcRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref Sqs2NfcRoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: Sqs2NfcAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:ChangeMessageVisibility
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt NfcQueue.Arn
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SlackBotTokenParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GoogleServiceAccountParameter}
+
+  Sqs2NfcLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Ref Sqs2NfcLayerName
+      CompatibleRuntimes:
+        - !Ref Runtime
+      Content:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref Sqs2NfcLayerCodeKey
+
+  Sqs2NfcFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref Sqs2NfcFunctionName
+      Runtime: !Ref Runtime
+      Handler: !Ref Sqs2NfcHandler
+      Role: !GetAtt Sqs2NfcRole.Arn
+      Timeout: !Ref Sqs2NfcTimeout
+      MemorySize: !Ref Sqs2NfcMemorySize
+      Layers:
+        - !Ref Sqs2NfcLayer
+      Environment:
+        Variables:
+          NFC_SLACK_CHANNEL: !Ref NfcSlackChannel
+          SLACK_BOT_TOKEN_PARAMETER: !Ref SlackBotTokenParameter
+          SPREADSHEET_ID: !Ref SpreadsheetId
+          GOOGLE_SERVICE_ACCOUNT_PARAMETER: !Ref GoogleServiceAccountParameter
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref Sqs2NfcFunctionCodeKey
+
+  Sqs2NfcEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref Sqs2NfcFunction
+      EventSourceArn: !GetAtt NfcQueue.Arn
+      BatchSize: !Ref Sqs2NfcBatchSize
+      Enabled: true
+
+Outputs:
+  NfcQueueName:
+    Value: !GetAtt NfcQueue.QueueName
+  NfcQueueUrl:
+    Value: !Ref NfcQueue
+  NfcQueueArn:
+    Value: !GetAtt NfcQueue.Arn
+  Nfc2SqsFunctionArn:
+    Value: !GetAtt Nfc2SqsFunction.Arn
+  Nfc2SqsFunctionUrl:
+    Value: !GetAtt Nfc2SqsFunctionUrl.FunctionUrl
+  Nfc2SqsLayerVersionArn:
+    Value: !Ref Nfc2SqsLayer
+  Nfc2SqsRoleArn:
+    Value: !GetAtt Nfc2SqsRole.Arn
+  Sqs2NfcFunctionArn:
+    Value: !GetAtt Sqs2NfcFunction.Arn
+  Sqs2NfcLayerVersionArn:
+    Value: !Ref Sqs2NfcLayer
+  Sqs2NfcRoleArn:
+    Value: !GetAtt Sqs2NfcRole.Arn
+  Sqs2NfcEventSourceMappingId:
+    Value: !Ref Sqs2NfcEventSourceMapping
