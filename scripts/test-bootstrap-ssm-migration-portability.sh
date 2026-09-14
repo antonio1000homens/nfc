@@ -58,6 +58,11 @@ exit 1
 MOCK_BWS
 chmod +x "${tmp}/bin/bws"
 
+# Exercise the same environment-based authentication contract used by the real
+# bws CLI without placing a credential-shaped assignment in committed source.
+bws_token_name='BWS_ACCESS_TOKEN'
+export "${bws_token_name}=test-machine-token"
+
 output="$(PATH="${tmp}/bin:${PATH}" MOCK_MUTATION_LOG="${mutation_log}" BOOTSTRAP_CONFIG=/dev/null \
   bash "${repo_root}/scripts/bootstrap-ssm-migration.sh" --dry-run --code-bucket test-code-bucket)"
 

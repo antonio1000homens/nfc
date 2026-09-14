@@ -18,7 +18,7 @@ check_pattern() {
 check_pattern 'AWS account identifier' '(^|[^0-9])[0-9]{12}([^0-9]|$)'
 check_pattern 'monorepo-style Lambda deployment bucket' 'aws[0-9]{4}-lambda-code'
 check_pattern 'broad Lambda monorepo deployment role' 'GitHubActions[A-Za-z0-9_-]*Lambdas[A-Za-z0-9_-]*DeployRole'
-check_pattern 'Bitwarden machine-account credential' 'BWS_(ACCESS_TOKEN|GITHUB_ACTIONS_[A-Z0-9_]+)'
+check_pattern 'Bitwarden machine-account credential value' '^[[:space:]]*(export[[:space:]]+)?BWS_(ACCESS_TOKEN|GITHUB_ACTIONS_[A-Z0-9_]+)[[:space:]]*=[[:space:]]*[^[:space:]#]+'
 check_pattern 'Bitwarden secret UUID literal' '(^|[^0-9A-Fa-f])[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[1-5][0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}([^0-9A-Fa-f]|$)'
 check_pattern 'AWS access key-shaped value' 'AKIA[0-9A-Z]{16}'
 check_pattern 'Google API key-shaped value' 'AIza[0-9A-Za-z_-]{35}'
