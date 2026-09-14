@@ -57,6 +57,10 @@ run this script and do not retrieve secret values.
 Default local config:
   ${default_config_file}
 
+Copy config/bootstrap-ssm-migration.env.example to that path. Set
+BWS_ACCESS_TOKEN in the gitignored local config (or export it in the shell)
+using a Bitwarden Secrets Manager machine-account access token.
+
 Options:
   --config FILE              Load a different local configuration file
   --repo OWNER/REPO          GitHub repository (default: antonio1000homens/nfc)
@@ -109,6 +113,12 @@ gh auth status >/dev/null
 GH_REPO="$(gh repo view "${REPO}" --json nameWithOwner --jq .nameWithOwner)"
 [[ "${GH_REPO}" == "${REPO}" ]] || { echo "Unexpected repository: ${GH_REPO}" >&2; exit 1; }
 echo 'ok'
+
+if [[ -z "${BWS_ACCESS_TOKEN:-}" ]]; then
+  echo 'BWS_ACCESS_TOKEN is not configured.' >&2
+  echo "Set it in ${CONFIG_FILE} (gitignored) or export it in the shell before running the migration." >&2
+  exit 1
+fi
 
 printf 'Checking Bitwarden Secrets Manager authentication... '
 BITWARDEN_CATALOG="$(bws secret list --output json | jq -ce '[.[] | {id, key}]')"
