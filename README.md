@@ -98,6 +98,8 @@ bash scripts/bootstrap-ssm-migration.sh --dry-run
 bash scripts/bootstrap-ssm-migration.sh
 ```
 
+In the copied `config/bootstrap-ssm-migration.env`, populate the `BWS_ACCESS_TOKEN=` line with the Bitwarden Secrets Manager machine-account token. The bootstrap sources the file with exported variables, so the `bws` CLI receives that token automatically. You can alternatively export `BWS_ACCESS_TOKEN` in the shell and leave the config entry blank.
+
 The script imports/refreshes the NFC API key, shared Slack token, and Google service-account value into their existing SSM SecureString paths. It moves the spreadsheet ID into a non-secret GitHub production environment variable. It never prints secret values or Bitwarden IDs. The real local config is gitignored.
 
 ## Direct deployment
@@ -120,4 +122,4 @@ Before removing NFC from the `lambdas` monorepo, complete an executed standalone
 
 ## Public repository boundary
 
-`scripts/check-public-source.sh` rejects common credential/account patterns, Bitwarden machine credentials/UUIDs, monorepo deployment data, private keys, generated deployment artifacts, historical migration exports, and `migration-backup/`. Never commit local bootstrap config, exported AWS resource snapshots, real credentials, or generated ZIP files.
+`scripts/check-public-source.sh` rejects common credential/account patterns, Bitwarden machine credential values/UUIDs, monorepo deployment data, private keys, generated deployment artifacts, historical migration exports, and `migration-backup/`. Never commit local bootstrap config, exported AWS resource snapshots, real credentials, or generated ZIP files.
