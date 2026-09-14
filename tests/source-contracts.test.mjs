@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { test } from 'node:test';
+
+const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+
+test('nfc2sqs keeps application-level API key validation and SSM lookup', async () => {
+  const source = await read('nfc2sqs/nfc2sqs.mjs');
+  assert.match(source, /getRequiredSecret\('REQUIRED_API_KEY_PARAMETER'\)/);
+  assert.match(source, /headers\['x-api-key'\]/);
+  assert.match(source, /statusCode:\s*401/);
+  assert.match(source, /statusCode:\s*403/);
+  assert.match(source, /SendMessageCommand/);
+});
+
+test('sqs2nfc keeps SSM-backed Google and Slack integration', async () => {
+  const source = await read('sqs2nfc/sqs2nfc.mjs');
+  assert.match(source, /getRequiredSecret\('GOOGLE_SERVICE_ACCOUNT_PARAMETER'\)/);
+  assert.match(source, /getRequiredSecret\('SLACK_BOT_TOKEN_PARAMETER'\)/);
+  assert.match(source, /process\.env\.SPREADSHEET_ID/);
+  assert.match(source, /event\.Records/);
+});
+
+test('runtime layer decrypts SSM values and requires parameter-name environment variables', async () => {
+  const source = await read('lambda-layer/nodejs/ssm-secrets.mjs');
+  assert.match(source, /WithDecryption:\s*true/);
+  assert.match(source, /process\.env\[nameEnvVar\]/);
+  assert.doesNotMatch(source, /put-parameter|PutParameter/);
+});
+
+test('normal deployment never retrieves or writes secret plaintext', async () => {
+  const source = await read('deploy.sh');
+  assert.doesNotMatch(source, /ssm\s+(get-parameter|put-parameter)/);
+  assert.doesNotMatch(source, /\bREQUIRED_API_KEY=/);
+  assert.doesNotMatch(source, /\bSLACK_BOT_TOKEN=/);
+  assert.doesNotMatch(source, /GOOGLE_SERVICE_ACCOUNT_(JSON|B64)=/);
+  assert.match(source, /REQUIRED_API_KEY_PARAMETER/);
+  assert.match(source, /GOOGLE_SERVICE_ACCOUNT_PARAMETER/);
+});
+
+test('production workflow uses OIDC and contains no Bitwarden dependency', async () => {
+  const source = await read('.github/workflows/deploy.yml');
+  assert.match(source, /environment:\s*production/);
+  assert.match(source, /id-token:\s*write/);
+  assert.match(source, /vars\.AWS_ROLE_TO_ASSUME/);
+  assert.match(source, /workflow_run:/);
+  assert.doesNotMatch(source, /bitwarden|BWS_|secrets\./i);
+});
+
+test('CloudFormation preserves retained queue and current SSM parameter names', async () => {
+  const source = await read('infrastructure/nfc.yaml');
+  assert.match(source, /DeletionPolicy:\s*Retain/);
+  assert.match(source, /UpdateReplacePolicy:\s*Retain/);
+  assert.match(source, /\/lambdas\/nfc\/required-api-key/);
+  assert.match(source, /\/lambdas\/nfc\/sqs2nfc\/google-service-account/);
+  assert.match(source, /\/lambdas\/shared\/slack-bot-token/);
+});
