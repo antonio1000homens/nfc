@@ -10,4 +10,8 @@ dist/
 *.log
 .aws-sam/
 .cfn-lint-cache/
+.wrangler/
+.terraform/
+*.tfstate
+*.tfstate.*
 migration-backup/
