@@ -1,31 +1,76 @@
 # NFC
 
-Standalone AWS workload for NFC scan handling. This repository owns the application source, CloudFormation stack, CI, and production deployment that previously lived in the private `lambdas` monorepo.
+Standalone NFC service for scan ingestion, queueing and Slack/Google Sheets processing. This repository owns the AWS application/infrastructure and the dedicated Cloudflare `nfcscan` edge Worker that were previously split across the `lambdas` and `windsor-app` repositories.
 
 ## Architecture
 
 The production flow is:
 
-1. An NFC client calls the public `nfc2sqs` Lambda Function URL.
-2. `nfc2sqs` validates the application-level `x-api-key` against an SSM SecureString, writes the NFC event to the retained `nfc` SQS queue, and posts the ingress notification to Slack.
-3. The queue invokes `sqs2nfc` through an event-source mapping.
-4. `sqs2nfc` resolves the Google service-account credential and Slack token from SSM, reads/writes the configured Google spreadsheet, and posts the interactive Slack response.
+```text
+NFC client / Slack-originated request
+        |
+        v
+https://awsnfcscan.alf1000.uk
+        |
+        v
+Cloudflare Worker: nfcscan
+  - validates x-api-key
+  - validates the migrated Slack-signature contract when headers are present
+  - requires realm=nfc
+        |
+        v
+nfc2sqs Lambda Function URL
+        |
+        v
+retained SQS queue: nfc
+        |
+        v
+sqs2nfc
+  -> Google Sheets
+  -> Slack
+```
 
-The Function URL intentionally uses `AuthType: NONE`; the API key is the application-level ingress control. Do not remove that validation without replacing it with an equivalent reviewed authentication mechanism.
+The Lambda Function URL intentionally uses `AuthType: NONE`; the application API key is still validated by `nfc2sqs` as defence in depth behind the Worker. Do not remove either ingress validation layer without a separately reviewed replacement.
+
+The shared `alf1000.uk` zone/WAF entry-point remains centrally owned. This repository owns the NFC Worker/custom domain, but must not create a second zone entry-point ruleset for a Cloudflare phase already managed by another Terraform state.
+
+## Repository layout
+
+- `nfc2sqs/` — public Function URL ingress Lambda;
+- `sqs2nfc/` — SQS consumer and Google Sheets/Slack processing;
+- `lambda-layer/` — shared Lambda dependencies and SSM helper;
+- `infrastructure/nfc.yaml` — NFC application CloudFormation stack;
+- `infrastructure/github-actions-deploy-role.yaml` — repository-specific GitHub OIDC deployment role;
+- `cloudflare/nfcscan/` — NFC-owned Cloudflare Worker, tests, Wrangler config and deployment helper;
+- `scripts/` — build, public-source, SSM bootstrap/load and Cloudflare-token helpers.
 
 ## Runtime configuration
 
-Runtime secret values are owned by AWS SSM Parameter Store and are read directly by the Lambdas. The initial standalone cutover deliberately keeps the existing parameter names:
+Lambda runtime secret values are owned by AWS SSM Parameter Store. The initial standalone cutover deliberately keeps the existing parameter names:
 
-- `/lambdas/nfc/required-api-key`
-- `/lambdas/nfc/sqs2nfc/google-service-account`
-- `/lambdas/shared/slack-bot-token`
+- `/lambdas/nfc/required-api-key`;
+- `/lambdas/nfc/sqs2nfc/google-service-account`;
+- `/lambdas/shared/slack-bot-token`.
 
-The Slack token is a shared external dependency and is not duplicated into an NFC-specific path during this migration.
+The Slack bot token is a shared external runtime dependency and is not duplicated into an NFC-specific path during this migration.
 
 `SPREADSHEET_ID` is non-secret configuration. Production supplies it as a GitHub `production` environment variable and CloudFormation passes it to `sqs2nfc`.
 
-Normal deployments never retrieve secret plaintext and never call `ssm:PutParameter`. Secret import/rotation is a separate local/admin operation.
+Normal AWS deployments never retrieve the Google service account or Slack bot token into GitHub Actions and never call `ssm:PutParameter`. Secret import/rotation is separate from normal deployment.
+
+## Cloudflare configuration
+
+The `nfcscan` Worker owns only `awsnfcscan.alf1000.uk`. Its deployment uses the same GitHub OIDC AWS session as the application deployment and loads only these SSM values:
+
+- `CF_NFC_API_KEY` from `/lambdas/nfc/required-api-key`;
+- `AWS2022_SIGNING_SECRET` from `/lambdas/aws2022-slack-handler/slack-signing-secret`;
+- `CLOUDFLARE_API_TOKEN` from `/nfc/cloudflare/api-token` by default.
+
+The Worker API key therefore comes from the same canonical value used by `nfc2sqs`, avoiding two independent copies that can drift. `NFC2SQS_URL` is non-secret and is resolved from the deployed CloudFormation `Nfc2SqsFunctionUrl` output on every production deployment.
+
+The migrated Windsor Worker used a legacy SHA-256 signing calculation for Slack-tagged requests rather than Slack's standard HMAC-SHA256 scheme. The new Worker preserves that deployed behaviour and tests it so the ownership cutover does not silently alter the request contract. Replacing it should be a separate hardening change.
+
+See `cloudflare/nfcscan/README.md` for the Worker contract and detailed cutover guardrails.
 
 ## Local development
 
@@ -37,31 +82,48 @@ npm run check
 npm run build
 ```
 
-`npm run build` installs the Lambda-layer dependencies from the committed lockfile and creates:
+Cloudflare-only tests can be run with:
 
-- `dist/nfc2sqs-lambda.zip`
-- `dist/sqs2nfc-lambda.zip`
-- `dist/lambda-layer.zip`
+```bash
+npm run test:cloudflare
+```
 
-Generated artifacts and installed dependencies are gitignored.
+Wrangler configuration can be validated without production credentials:
+
+```bash
+npx --yes wrangler@4 deploy \
+  --config cloudflare/nfcscan/wrangler.toml \
+  --dry-run \
+  --var 'NFC2SQS_URL:https://example.invalid/'
+```
+
+`npm run build` installs Lambda-layer dependencies from the committed lockfile and creates:
+
+- `dist/nfc2sqs-lambda.zip`;
+- `dist/sqs2nfc-lambda.zip`;
+- `dist/lambda-layer.zip`.
+
+Generated artifacts, Wrangler state and Terraform local state are gitignored.
 
 ## CI
 
 `.github/workflows/ci.yml` runs on pull requests and pushes to `master`. It:
 
 - enforces the public-source boundary;
-- builds the Lambda layer reproducibly from `lambda-layer/nodejs/package-lock.json`;
-- runs source/security contract tests and syntax checks;
+- builds the Lambda layer reproducibly;
+- runs Lambda and `nfcscan` Worker tests;
 - validates function/layer package contents;
-- tests the one-time migration/SSM bootstrap helpers;
-- lints both CloudFormation templates without production AWS credentials;
+- tests the one-time migration and SSM helpers;
+- lints the NFC and GitHub deployment-role CloudFormation templates;
+- syntax-checks Cloudflare helpers;
+- runs a credential-free Wrangler deployment dry-run;
 - publishes the tested `dist/` artifact only for a trusted push to `master`.
 
-PR CI requires no AWS credentials, SSM access, GitHub deployment identity, or Bitwarden access.
+PR CI requires no AWS, Cloudflare, SSM or Bitwarden credentials, including fork PRs.
 
 ## Production deployment
 
-Production uses the protected GitHub environment named `production`. Configure these environment variables:
+Production uses the protected GitHub environment named `production` and GitHub OIDC. Configure these existing/non-secret AWS environment variables:
 
 - `AWS_ROLE_TO_ASSUME` — ARN output by `infrastructure/bootstrap-deployment-role.sh`;
 - `AWS_REGION` — normally `eu-west-2`;
@@ -71,9 +133,9 @@ Production uses the protected GitHub environment named `production`. Configure t
 - `SPREADSHEET_ID` — non-secret spreadsheet identifier;
 - optional overrides for `REQUIRED_API_KEY_PARAMETER`, `SLACK_BOT_TOKEN_PARAMETER`, and `GOOGLE_SERVICE_ACCOUNT_PARAMETER`.
 
-The deployment workflow uses GitHub OIDC. It has no long-lived AWS access keys and no Bitwarden credentials. Automatic deployment is triggered only after CI succeeds for the exact current `master` SHA, then reuses the build artifact produced by that CI run. Manual workflow dispatch supports a non-executing CloudFormation plan or an explicitly confirmed deployment.
+The workflow deploys only a CI-tested current `master` SHA and supports `workflow_dispatch`. Manual dispatch can create a non-executing CloudFormation plan or perform an explicitly confirmed deployment. Production concurrency is serialized.
 
-### Bootstrap the repository-specific OIDC role
+### Bootstrap/update the repository-specific OIDC role
 
 From an authenticated local/admin AWS session:
 
@@ -82,29 +144,95 @@ CODE_BUCKET='<private-artifact-bucket>' \
   bash infrastructure/bootstrap-deployment-role.sh
 ```
 
-The role trust policy is restricted to this repository and the `production` GitHub environment. Its permissions are scoped to the NFC stack/artifact prefix, NFC functions/layers/queue/runtime roles/log groups, event-source mapping, and read-only access to the three runtime SSM parameters.
+Run this again after merging the Cloudflare migration before enabling Worker deployment. The role is restricted to the NFC repository's protected `production` environment and grants Cloudflare deployment read access only to:
 
-After the role is created, configure the returned ARN as `AWS_ROLE_TO_ASSUME` in the `production` environment. Restrict that GitHub environment to the `master` deployment branch and apply the desired reviewer/protection policy before enabling automatic production deployment.
+- the NFC API-key parameter;
+- the shared Slack-signing-secret parameter;
+- the dedicated NFC Cloudflare-token parameter.
 
-### One-time Bitwarden → SSM bootstrap
+It does not need GitHub Actions read access to the Lambda runtime Slack bot token or Google service-account credential.
+
+### One-time Bitwarden -> SSM bootstrap for existing NFC runtime values
 
 Bitwarden is supported only as a migration source. It is not used by CI or production deployment.
 
 ```bash
 cp config/bootstrap-ssm-migration.env.example config/bootstrap-ssm-migration.env
-# Fill the gitignored local config, then validate mappings/auth without reading values:
 bash scripts/bootstrap-ssm-migration.sh --dry-run
-# Execute only after reviewing the target account/role/paths:
 bash scripts/bootstrap-ssm-migration.sh
 ```
 
-In the copied `config/bootstrap-ssm-migration.env`, populate the `BWS_ACCESS_TOKEN=` line with the Bitwarden Secrets Manager machine-account token. The bootstrap sources the file with exported variables, so the `bws` CLI receives that token automatically. You can alternatively export `BWS_ACCESS_TOKEN` in the shell and leave the config entry blank.
+The populated local config is gitignored. The bootstrap imports/refreshes the existing NFC API key, shared Slack bot token and Google service-account value into their established SSM paths and writes only non-secret deployment configuration to the GitHub production environment.
 
-The script imports/refreshes the NFC API key, shared Slack token, and Google service-account value into their existing SSM SecureString paths. It moves the spreadsheet ID into a non-secret GitHub production environment variable. It never prints secret values or Bitwarden IDs. The real local config is gitignored.
+### Store the dedicated NFC Cloudflare token
 
-## Direct deployment
+Create a Cloudflare API token scoped only to the account/zone permissions actually required by `nfcscan` Worker deployment and custom-domain reconciliation. Do not reuse Windsor's broad deployment token.
 
-`deploy.sh` is also usable from an authenticated shell. It accepts only deployment configuration and SSM parameter *names*; secret values are not inputs.
+From an authenticated local/admin AWS session, store it without putting it on a command line:
+
+```bash
+bash scripts/store-cloudflare-api-token.sh
+```
+
+The default target is the SSM SecureString `/nfc/cloudflare/api-token`. Set `CLOUDFLARE_API_TOKEN_PARAMETER` only if a different path is deliberately used, then rerun the deployment-role bootstrap with the same override.
+
+### Cloudflare cutover gate
+
+Cloudflare mutation is intentionally **disabled by default**. Before enabling it, audit the live Cloudflare account and record resource IDs/configuration only, never secret values. Confirm at minimum:
+
+- the Worker/service currently serving `nfcscan`;
+- custom-domain/route and DNS ownership for `awsnfcscan.alf1000.uk`;
+- any Access application/policies and service-token dependencies;
+- every WAF/custom/rate-limit/bot rule referencing this hostname;
+- the exact permissions required by the dedicated NFC Cloudflare API token.
+
+Then configure the protected `production` environment:
+
+- `CLOUDFLARE_ACCOUNT_ID` — non-secret account identifier;
+- `CLOUDFLARE_API_TOKEN_PARAMETER` — optional, defaults to `/nfc/cloudflare/api-token`;
+- `SLACK_SIGNING_SECRET_PARAMETER` — optional, defaults to `/lambdas/aws2022-slack-handler/slack-signing-secret`;
+- `CLOUDFLARE_DEPLOY_ENABLED=true` — set **only after** the live audit and OIDC-role update are complete.
+
+When enabled on a real deployment (never a plan-only run), the workflow:
+
+1. deploys the AWS stack;
+2. tests the exact `nfcscan` revision;
+3. resolves the current `nfc2sqs` Function URL from CloudFormation;
+4. reads the three required deployment values from SSM and masks them;
+5. performs a Wrangler dry-run;
+6. syncs the API key/signing secret to Worker secrets;
+7. deploys `nfcscan` and reconciles `awsnfcscan.alf1000.uk`.
+
+A failed Cloudflare step does not delete the currently working custom domain first.
+
+## Cloudflare Access and shared WAF ownership
+
+Repository source is not proof of live Cloudflare absence. Do not create DNS, Access or WAF resources merely because they are not present here.
+
+If an Access application already protects `awsnfcscan.alf1000.uk`, import it into a small isolated NFC-owned Terraform state before managing it. If no application exists, do not add interactive browser login to this machine endpoint without proving every caller supports the selected machine-compatible policy.
+
+Shared `alf1000.uk` zone entry-point/WAF resources remain under their existing central owner. In particular, the NFC scan-protection rule must remain effective and hostname-scoped through the cutover without allowing both Windsor and NFC Terraform states to manage the same zone ruleset.
+
+## Runtime verification and Windsor cleanup
+
+After the first NFC-owned Cloudflare deployment, verify both negative and positive paths:
+
+- missing/bad API key is rejected;
+- invalid `realm` is rejected;
+- valid NFC traffic reaches `nfc2sqs`;
+- the retained SQS queue receives and processes the message;
+- `sqs2nfc` completes Google Sheets processing;
+- Slack notifications/interactions still work where applicable;
+- downstream failures remain visible as failures;
+- the shared NFC WAF protection remains effective.
+
+Only after that production verification should Windsor's `cloudflare/nfcscan/**`, its workflow job/path filter and Windsor-only deployment references be removed, following the cleanup/handoff described by `windsor-app#1876`. Shared zone/WAF ownership must remain intact.
+
+Likewise, remove the old NFC AWS ownership from the `lambdas` monorepo only after the standalone AWS deployment has been proven against the existing production resources and queue state.
+
+## Direct AWS deployment
+
+`deploy.sh` is usable from an authenticated shell. It accepts only deployment configuration and SSM parameter *names*; runtime secret values are not inputs.
 
 ```bash
 CODE_BUCKET='<private-artifact-bucket>' \
@@ -114,12 +242,6 @@ bash ./deploy.sh
 
 Set `PLAN_ONLY=true` to create but not execute the CloudFormation change set. Set `SKIP_BUILD=true` only when the three tested ZIP files already exist under `dist/`.
 
-## Cutover safety
-
-The template preserves the existing stack/resource defaults (`nfc`, `nfc2sqs`, `sqs2nfc`, layers and runtime-role names), retained SQS queue, Function URL, and event-source mapping. The first standalone production run should be a plan and should be reviewed for updates/no-op rather than duplicate/replacement resources.
-
-Before removing NFC from the `lambdas` monorepo, complete an executed standalone deployment and verify: Function URL/API-key behaviour, SQS enqueue/consume, Google Sheets access, Slack notifications, runtime SSM retrieval, and preservation of existing queue state/messages. Monorepo cleanup is intentionally deferred until that production verification has succeeded.
-
 ## Public repository boundary
 
-`scripts/check-public-source.sh` rejects common credential/account patterns, Bitwarden machine credential values/UUIDs, monorepo deployment data, private keys, generated deployment artifacts, historical migration exports, and `migration-backup/`. Never commit local bootstrap config, exported AWS resource snapshots, real credentials, or generated ZIP files.
+`scripts/check-public-source.sh` rejects common credential/account patterns, Bitwarden machine credential values/UUIDs, monorepo deployment data, private keys, generated deployment artifacts, historical migration exports and `migration-backup/`. Never commit local bootstrap config, exported AWS/Cloudflare resource snapshots, real credentials, Worker secrets or generated ZIP files.
