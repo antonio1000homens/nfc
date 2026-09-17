@@ -1,0 +1,11 @@
+name = "nfcscan"
+main = "worker.js"
+compatibility_date = "2026-09-17"
+workers_dev = false
+
+# Keep the production custom domain identical during the ownership transfer.
+# The Cloudflare account is supplied through CLOUDFLARE_ACCOUNT_ID in the
+# protected GitHub production environment rather than hard-coded here.
+routes = [
+  { pattern = "awsnfcscan.alf1000.uk", custom_domain = true }
+]
