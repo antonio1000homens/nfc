@@ -5,8 +5,8 @@ AWS_REGION="${AWS_REGION:-eu-west-2}"
 DEPLOYMENT_ROLE_NAME="${DEPLOYMENT_ROLE_NAME:-GitHubActionsNfcDeployRole}"
 POLICY_NAME="${POLICY_NAME:-nfc-ssm-read}"
 REQUIRED_API_KEY_PARAMETER="${REQUIRED_API_KEY_PARAMETER:-/lambdas/nfc/required-api-key}"
-SLACK_BOT_TOKEN_PARAMETER="${SLACK_BOT_TOKEN_PARAMETER:-/lambdas/shared/slack-bot-token}"
-GOOGLE_SERVICE_ACCOUNT_PARAMETER="${GOOGLE_SERVICE_ACCOUNT_PARAMETER:-/lambdas/nfc/sqs2nfc/google-service-account}"
+SLACK_SIGNING_SECRET_PARAMETER="${SLACK_SIGNING_SECRET_PARAMETER:-/lambdas/aws2022-slack-handler/slack-signing-secret}"
+CLOUDFLARE_API_TOKEN_PARAMETER="${CLOUDFLARE_API_TOKEN_PARAMETER:-/nfc/cloudflare/api-token}"
 
 account_id="$(aws sts get-caller-identity --query Account --output text --region "${AWS_REGION}")"
 caller_arn="$(aws sts get-caller-identity --query Arn --output text --region "${AWS_REGION}")"
@@ -24,12 +24,12 @@ jq -n \
   --arg account "${account_id}" \
   --arg partition "${partition}" \
   --arg api "${REQUIRED_API_KEY_PARAMETER#/}" \
-  --arg slack "${SLACK_BOT_TOKEN_PARAMETER#/}" \
-  --arg google "${GOOGLE_SERVICE_ACCOUNT_PARAMETER#/}" \
-  '{Version:"2012-10-17",Statement:[{Sid:"ReadNfcRuntimeParameters",Effect:"Allow",Action:["ssm:GetParameter","ssm:GetParameters"],Resource:[
+  --arg signing "${SLACK_SIGNING_SECRET_PARAMETER#/}" \
+  --arg cloudflare "${CLOUDFLARE_API_TOKEN_PARAMETER#/}" \
+  '{Version:"2012-10-17",Statement:[{Sid:"ReadNfcDeploymentParameters",Effect:"Allow",Action:["ssm:GetParameter","ssm:GetParameters"],Resource:[
     "arn:\($partition):ssm:\($region):\($account):parameter/\($api)",
-    "arn:\($partition):ssm:\($region):\($account):parameter/\($slack)",
-    "arn:\($partition):ssm:\($region):\($account):parameter/\($google)"
+    "arn:\($partition):ssm:\($region):\($account):parameter/\($signing)",
+    "arn:\($partition):ssm:\($region):\($account):parameter/\($cloudflare)"
   ]}]}' > "${policy_file}"
 
 aws iam put-role-policy \
