@@ -44,8 +44,17 @@ PATH="${tmp}/bin:${PATH}" MOCK_AWS_LOG="${log}" MOCK_POLICY_COPY="${policy_copy}
 
 test -s "${policy_copy}"
 grep -Fq 'parameter/lambdas/nfc/required-api-key' "${policy_copy}"
-grep -Fq 'parameter/lambdas/shared/slack-bot-token' "${policy_copy}"
-grep -Fq 'parameter/lambdas/nfc/sqs2nfc/google-service-account' "${policy_copy}"
+grep -Fq 'parameter/lambdas/aws2022-slack-handler/slack-signing-secret' "${policy_copy}"
+grep -Fq 'parameter/nfc/cloudflare/api-token' "${policy_copy}"
+
+if grep -Fq 'parameter/lambdas/shared/slack-bot-token' "${policy_copy}"; then
+  echo 'Deployment role should not read the runtime Slack bot token.' >&2
+  exit 1
+fi
+if grep -Fq 'parameter/lambdas/nfc/sqs2nfc/google-service-account' "${policy_copy}"; then
+  echo 'Deployment role should not read the Google service account.' >&2
+  exit 1
+fi
 if grep -Fq 'ssm:PutParameter' "${policy_copy}"; then
   echo 'SSM access policy unexpectedly grants write access.' >&2
   exit 1
