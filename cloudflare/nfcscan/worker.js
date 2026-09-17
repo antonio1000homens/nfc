@@ -41,7 +41,7 @@ export default {
     const url = new URL(request.url);
 
     try {
-      if (url.host !== ALLOWED_HOST) {
+      if (url.hostname !== ALLOWED_HOST) {
         return new Response(`Unhandled host: ${url.host}`, { status: 400 });
       }
 

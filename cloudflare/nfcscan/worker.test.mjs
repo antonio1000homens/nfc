@@ -79,6 +79,21 @@ test("accepts realm from query while keeping the original body", async () => {
   }
 });
 
+test("accepts the production hostname when a non-default port is present", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("ok", { status: 200 });
+
+  try {
+    const response = await worker.fetch(
+      nfcRequest(undefined, { url: "https://awsnfcscan.alf1000.uk:443/scan" }),
+      baseEnv,
+    );
+    assert.equal(response.status, 200);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("rejects missing or invalid API key and fails closed if the binding is absent", async () => {
   const noKey = nfcRequest();
   noKey.headers.delete("x-api-key");
