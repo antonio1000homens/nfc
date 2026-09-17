@@ -2,16 +2,17 @@
   "name": "nfc-lambda",
   "version": "1.0.0",
   "private": true,
-  "description": "NFC Lambda functions for Slack integration and SQS messaging",
+  "description": "NFC Lambda functions and Cloudflare ingress for Slack integration and SQS messaging",
   "type": "module",
   "main": "nfc2sqs/nfc2sqs.mjs",
   "scripts": {
     "build": "bash scripts/build.sh",
     "deploy": "bash deploy.sh",
-    "test": "node --test tests/*.test.mjs",
-    "check": "node --check nfc2sqs/nfc2sqs.mjs && node --check sqs2nfc/sqs2nfc.mjs && node --check lambda-layer/nodejs/ssm-secrets.mjs && bash -n deploy.sh scripts/*.sh infrastructure/*.sh"
+    "test": "node --test tests/*.test.mjs cloudflare/nfcscan/worker.test.mjs",
+    "test:cloudflare": "node --test cloudflare/nfcscan/worker.test.mjs",
+    "check": "node --check nfc2sqs/nfc2sqs.mjs && node --check sqs2nfc/sqs2nfc.mjs && node --check lambda-layer/nodejs/ssm-secrets.mjs && node --check cloudflare/nfcscan/worker.js && node --check cloudflare/nfcscan/worker.test.mjs && bash -n deploy.sh scripts/*.sh infrastructure/*.sh cloudflare/nfcscan/deploy-ci.sh"
   },
-  "keywords": ["aws", "lambda", "nfc", "slack", "sqs"],
+  "keywords": ["aws", "lambda", "nfc", "slack", "sqs", "cloudflare"],
   "license": "MIT",
   "engines": {
     "node": ">=22.0.0"
