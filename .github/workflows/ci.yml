@@ -40,9 +40,10 @@ jobs:
           unzip -l dist/lambda-layer.zip | grep -Fq 'nodejs/ssm-secrets.mjs'
           unzip -l dist/lambda-layer.zip | grep -Fq 'nodejs/node_modules/@aws-sdk/client-ssm/'
           unzip -l dist/lambda-layer.zip | grep -Fq 'nodejs/node_modules/googleapis/'
-      - name: Test bootstrap scripts
+      - name: Test bootstrap and SSM helpers
         run: |
           bash scripts/test-bootstrap-ssm-migration-portability.sh
+          bash scripts/test-load-ssm-secrets.sh
           bash infrastructure/test-bootstrap-ssm-secrets-access.sh
       - name: Publish tested NFC build
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
@@ -67,3 +68,24 @@ jobs:
         run: sam validate --lint --template infrastructure/github-actions-deploy-role.yaml
       - name: Check migration bootstrap help
         run: bash scripts/bootstrap-ssm-migration.sh --help >/dev/null
+
+  cloudflare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test nfcscan Worker
+        run: node --test cloudflare/nfcscan/worker.test.mjs
+      - name: Validate Cloudflare helper syntax
+        run: |
+          node --check cloudflare/nfcscan/worker.js
+          node --check cloudflare/nfcscan/worker.test.mjs
+          bash -n cloudflare/nfcscan/deploy-ci.sh scripts/load-ssm-secrets.sh scripts/store-cloudflare-api-token.sh
+      - name: Validate nfcscan Wrangler configuration
+        run: >-
+          npx --yes wrangler@4 deploy
+          --config cloudflare/nfcscan/wrangler.toml
+          --dry-run
+          --var 'NFC2SQS_URL:https://example.invalid/'
