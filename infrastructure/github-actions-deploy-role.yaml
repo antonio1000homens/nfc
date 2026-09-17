@@ -39,12 +39,12 @@ Parameters:
   RequiredApiKeyParameter:
     Type: String
     Default: /lambdas/nfc/required-api-key
-  SlackBotTokenParameter:
+  SlackSigningSecretParameter:
     Type: String
-    Default: /lambdas/shared/slack-bot-token
-  GoogleServiceAccountParameter:
+    Default: /lambdas/aws2022-slack-handler/slack-signing-secret
+  CloudflareApiTokenParameter:
     Type: String
-    Default: /lambdas/nfc/sqs2nfc/google-service-account
+    Default: /nfc/cloudflare/api-token
 
 Resources:
   NfcDeploymentRole:
@@ -211,15 +211,15 @@ Resources:
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${Nfc2SqsFunctionName}*
                   - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${Sqs2NfcFunctionName}*
 
-              - Sid: ReadNfcRuntimeParameters
+              - Sid: ReadNfcDeploymentParameters
                 Effect: Allow
                 Action:
                   - ssm:GetParameter
                   - ssm:GetParameters
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${RequiredApiKeyParameter}
-                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SlackBotTokenParameter}
-                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GoogleServiceAccountParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SlackSigningSecretParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${CloudflareApiTokenParameter}
 
 Outputs:
   DeploymentRoleArn:
