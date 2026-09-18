@@ -1,4 +1,8 @@
-const ALLOWED_HOST = "awsnfcscan.alf1000.uk";
+const CANONICAL_HOST = "nfc.alf-broadcast.co.uk";
+const ALLOWED_HOSTS = new Set([
+  CANONICAL_HOST,
+  "awsnfcscan.alf1000.uk",
+]);
 const ALLOWED_METHODS = new Set(["POST", "PUT"]);
 
 function jsonResponse(status, payload) {
@@ -41,7 +45,7 @@ export default {
     const url = new URL(request.url);
 
     try {
-      if (url.hostname !== ALLOWED_HOST) {
+      if (!ALLOWED_HOSTS.has(url.hostname)) {
         return new Response(`Unhandled host: ${url.host}`, { status: 400 });
       }
 
@@ -141,3 +145,5 @@ export default {
     }
   },
 };
+
+export { CANONICAL_HOST, ALLOWED_HOSTS };
