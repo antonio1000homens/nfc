@@ -69,3 +69,11 @@ test('Phase A Cloudflare config keeps both hostnames until cutover completes', a
   assert.match(wrangler, /nfc\.alf-broadcast\.co\.uk/);
   assert.match(wrangler, /awsnfcscan\.alf1000\.uk/);
 });
+
+test('SSM bootstrap normalises Google service-account JSON before storing it', async () => {
+  const source = await read('scripts/bootstrap-ssm-migration.sh');
+  assert.match(source, /put_google_service_account_parameter/);
+  assert.match(source, /decode_base64_stdin/);
+  assert.match(source, /--rawfile value/);
+  assert.match(source, /normalised JSON/);
+});
