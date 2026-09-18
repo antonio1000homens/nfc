@@ -16,6 +16,10 @@ test('nfc2sqs keeps application-level API key validation and SSM lookup', async 
 test('sqs2nfc keeps SSM-backed Google and Slack integration', async () => {
   const source = await read('sqs2nfc/sqs2nfc.mjs');
   assert.match(source, /getRequiredSecret\('GOOGLE_SERVICE_ACCOUNT_PARAMETER'\)/);
+  assert.match(source, /JSON\.parse/);
+  assert.doesNotMatch(source, /Buffer\.from\([^\n]*base64/);
+  assert.doesNotMatch(source, /PutParameterCommand/);
+  assert.doesNotMatch(source, /normalizeGoogleServiceAccountParameter/);
   assert.match(source, /getRequiredSecret\('SLACK_BOT_TOKEN_PARAMETER'\)/);
   assert.match(source, /process\.env\.SPREADSHEET_ID/);
   assert.match(source, /event\.Records/);
@@ -79,10 +83,9 @@ test('SSM bootstrap normalises Google service-account JSON before storing it', a
 });
 
 
-test('temporary Google credential normalizer is isolated to sqs2nfc maintenance invocation', async () => {
-  const source = await read('sqs2nfc/sqs2nfc.mjs');
-  assert.match(source, /normalizeGoogleServiceAccountParameter/);
-  assert.match(source, /PutParameterCommand/);
-  assert.match(source, /event\?\.operation === 'normalizeGoogleServiceAccountParameter'/);
-  assert.match(source, /KeyId:\s*'alias\/aws\/ssm'/);
+test('runtime consumer has no permission path to rewrite the Google credential', async () => {
+  const app = await read('sqs2nfc/sqs2nfc.mjs');
+  const template = await read('infrastructure/nfc.yaml');
+  assert.doesNotMatch(app, /PutParameterCommand|normalizeGoogleServiceAccountParameter/);
+  assert.doesNotMatch(template, /Action:\s*ssm:PutParameter/);
 });
