@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import worker, { ALLOWED_HOSTS, CANONICAL_HOST, computeLegacySlackSignature } from "./worker.js";
 
-const LEGACY_HOST = "awsnfcscan.alf1000.uk";\n\nconst baseEnv = {
+const LEGACY_HOST = "awsnfcscan.alf1000.uk";
+
+const baseEnv = {
   CF_NFC_API_KEY: "nfc-key",
   AWS2022_SIGNING_SECRET: "signing-secret",
   NFC2SQS_URL: "https://lambda.example.test/",
