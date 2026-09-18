@@ -219,6 +219,11 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SlackBotTokenParameter}
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GoogleServiceAccountParameter}
+              # Temporary migration permission. Remove immediately after the
+              # one-time Google service-account normalization invocation.
+              - Effect: Allow
+                Action: ssm:PutParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GoogleServiceAccountParameter}
 
   Sqs2NfcLayer:
     Type: AWS::Lambda::LayerVersion
