@@ -9,7 +9,7 @@ It preserves the production Worker name `nfcscan` and custom domain
 The Worker:
 
 - accepts `POST` and `PUT` requests only;
-- requires the `awsnfcscan.alf1000.uk` host;
+- accepts only the configured canonical/legacy NFC hosts (`nfc.alf-broadcast.co.uk` and `awsnfcscan.alf1000.uk`);
 - requires `x-api-key` to match `CF_NFC_API_KEY`;
 - validates the migrated Windsor Slack-signature contract when Slack signature
   headers are present;
@@ -65,7 +65,7 @@ environment contains:
 - `CLOUDFLARE_API_TOKEN_PARAMETER` if the default SSM path is not used;
 - `SLACK_SIGNING_SECRET_PARAMETER` if the canonical shared path is overridden.
 
-Before setting `CLOUDFLARE_DEPLOY_ENABLED=true`, audit the live Cloudflare account
+Before first ownership cutover, audit the live Cloudflare account
 and confirm:
 
 1. `nfcscan` is the Worker currently serving `awsnfcscan.alf1000.uk`;
