@@ -10,7 +10,7 @@ The production flow is:
 NFC client / Slack-originated request
         |
         v
-https://nfc.alf-broadcast.co.uk\n        |\n        +-- compatibility alias: https://awsnfcscan.alf1000.uk
+https://nfc.alf-broadcast.co.uk
         |
         v
 Cloudflare Worker: nfcscan
@@ -32,7 +32,7 @@ sqs2nfc
 
 The Lambda Function URL intentionally uses `AuthType: NONE`; the application API key is still validated by `nfc2sqs` as defence in depth behind the Worker. Do not remove either ingress validation layer without a separately reviewed replacement.
 
-The shared `alf1000.uk` zone/WAF entry-point remains centrally owned. This repository owns the NFC Worker/custom domain, but must not create a second zone entry-point ruleset for a Cloudflare phase already managed by another Terraform state.
+Shared Cloudflare zone/WAF entry-point rules remain centrally owned. This repository owns the NFC Worker/custom domain, but must not create a second zone entry-point ruleset for a Cloudflare phase already managed by another Terraform state.
 
 ## Repository layout
 
@@ -60,7 +60,7 @@ Normal AWS deployments never retrieve the Google service account or Slack bot to
 
 ## Cloudflare configuration
 
-The `nfcscan` Worker owns the canonical `nfc.alf-broadcast.co.uk` custom domain and retains `awsnfcscan.alf1000.uk` as a compatibility alias during cutover. Its deployment uses the same GitHub OIDC AWS session as the application deployment and loads only these SSM values:
+The `nfcscan` Worker owns the canonical and only production custom domain `nfc.alf-broadcast.co.uk`. Its deployment uses the same GitHub OIDC AWS session as the application deployment and loads only these SSM values:
 
 - `CF_NFC_API_KEY` from `/lambdas/nfc/required-api-key`;
 - `AWS2022_SIGNING_SECRET` from `/lambdas/aws2022-slack-handler/slack-signing-secret`;
@@ -70,7 +70,7 @@ The Worker API key therefore comes from the same canonical value used by `nfc2sq
 
 The migrated Windsor Worker used a legacy SHA-256 signing calculation for Slack-tagged requests rather than Slack's standard HMAC-SHA256 scheme. The new Worker preserves that deployed behaviour and tests it so the ownership cutover does not silently alter the request contract. Replacing it should be a separate hardening change.
 
-See `cloudflare/nfcscan/README.md` for the Worker contract and detailed cutover guardrails.
+See `cloudflare/nfcscan/README.md` for the Worker contract and Cloudflare ownership boundary.
 
 ## Local development
 
@@ -176,58 +176,46 @@ bash scripts/store-cloudflare-api-token.sh
 
 The default target is the SSM SecureString `/nfc/cloudflare/api-token`. Set `CLOUDFLARE_API_TOKEN_PARAMETER` only if a different path is deliberately used, then rerun the deployment-role bootstrap with the same override.
 
-### Cloudflare cutover gate
+### Cloudflare production ownership
 
-Cloudflare deployment is now part of the normal tested production deployment, following the same repository-owned deployment pattern as `recordings`. Before enabling it, audit the live Cloudflare account and record resource IDs/configuration only, never secret values. Confirm at minimum:
+Cloudflare deployment is part of the normal tested production deployment, following the same repository-owned deployment pattern as `recordings`.
 
-- the Worker/service currently serving `nfcscan`;
-- custom-domain/route and DNS ownership for `awsnfcscan.alf1000.uk`;
-- any Access application/policies and service-token dependencies;
-- every WAF/custom/rate-limit/bot rule referencing this hostname;
-- the exact permissions required by the dedicated NFC Cloudflare API token.
-
-Then configure the protected `production` environment:
+Configure the protected `production` environment with:
 
 - `CLOUDFLARE_ACCOUNT_ID` — non-secret account identifier;
 - `CLOUDFLARE_API_TOKEN_PARAMETER` — optional, defaults to `/nfc/cloudflare/api-token`;
-- `SLACK_SIGNING_SECRET_PARAMETER` — optional, defaults to `/lambdas/aws2022-slack-handler/slack-signing-secret`;
+- `SLACK_SIGNING_SECRET_PARAMETER` — optional, defaults to `/lambdas/aws2022-slack-handler/slack-signing-secret`.
 
-When enabled on a real deployment (never a plan-only run), the workflow:
+On a real deployment the workflow:
 
 1. deploys the AWS stack;
 2. tests the exact `nfcscan` revision;
 3. resolves the current `nfc2sqs` Function URL from CloudFormation;
-4. reads the three required deployment values from SSM and masks them;
+4. reads the required deployment values from SSM and masks them;
 5. performs a Wrangler dry-run;
 6. syncs the API key/signing secret to Worker secrets;
-7. deploys `nfcscan` and reconciles `awsnfcscan.alf1000.uk`.
+7. deploys `nfcscan` on `nfc.alf-broadcast.co.uk`;
+8. verifies the canonical edge rejects an invalid API key.
 
-A failed Cloudflare step does not delete the currently working custom domain first.
+The dedicated NFC Cloudflare token should be scoped only to the permissions required for the NFC Worker and the `alf-broadcast.co.uk` custom domain. It should not retain `alf1000.uk` Workers Routes permission after Phase B.
 
 ## Cloudflare Access and shared WAF ownership
 
 Repository source is not proof of live Cloudflare absence. Do not create DNS, Access or WAF resources merely because they are not present here.
 
-If an Access application already protects `awsnfcscan.alf1000.uk`, import it into a small isolated NFC-owned Terraform state before managing it. If no application exists, do not add interactive browser login to this machine endpoint without proving every caller supports the selected machine-compatible policy.
+Shared zone-entry/WAF resources remain under their existing central Terraform owner. The canonical `nfc.alf-broadcast.co.uk` machine-ingress exception is centrally managed as part of the `alf-broadcast.co.uk` ruleset; NFC must not duplicate that ruleset in this repository.
 
-Shared `alf1000.uk` zone entry-point/WAF resources remain under their existing central owner. In particular, the NFC scan-protection rule must remain effective and hostname-scoped through the cutover without allowing both Windsor and NFC Terraform states to manage the same zone ruleset.
+The retired `awsnfcscan.alf1000.uk` hostname is no longer an NFC dependency, so any hostname-specific central `alf1000.uk` exception should also be removed.
 
-## Runtime verification and Windsor cleanup
+## Runtime verification and ownership
 
-CI follows the `recordings` ingress pattern: it proves the Worker is deployed and that bad credentials are rejected at the edge, but it does not attempt to impersonate a production NFC client with an authenticated GitHub-hosted `curl`. Cloudflare bot classification can challenge such synthetic automation independently of Worker correctness.\n\nAfter deployment, verify the positive path with one real NFC client request:
+CI follows the `recordings` ingress pattern: it proves the Worker is deployed and that bad credentials are rejected at the canonical edge, but it does not attempt to impersonate a production NFC client with an authenticated GitHub-hosted `curl`.
 
-- missing/bad API key is rejected;
-- invalid `realm` is rejected;
-- valid NFC traffic reaches `nfc2sqs`;
-- the retained SQS queue receives and processes the message;
-- `sqs2nfc` completes Google Sheets processing;
-- Slack notifications/interactions still work where applicable;
-- downstream failures remain visible as failures;
-- the shared NFC WAF protection remains effective.
+The canonical endpoint has also passed a real production scan through:
 
-Only after that production verification should Windsor's `cloudflare/nfcscan/**`, its workflow job/path filter and Windsor-only deployment references be removed, following the cleanup/handoff described by `windsor-app#1876`. Shared zone/WAF ownership must remain intact.
+`Worker -> nfc2sqs -> SQS -> sqs2nfc -> Google Sheets -> Slack`
 
-Likewise, remove the old NFC AWS ownership from the `lambdas` monorepo only after the standalone AWS deployment has been proven against the existing production resources and queue state.
+Windsor no longer owns or deploys the `nfcscan` Worker. It retains only centrally managed shared zone-security Terraform until/unless that Terraform state is deliberately carved out as a whole.
 
 ## Direct AWS deployment
 

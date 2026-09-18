@@ -189,7 +189,7 @@ jobs:
           # GitHub-hosted curl is deliberately not used to simulate an
           # authenticated NFC client because Cloudflare bot classification can
           # challenge synthetic automation independently of Worker correctness.
-          for base_url in "https://nfc.alf-broadcast.co.uk" "https://awsnfcscan.alf1000.uk"; do
+          for base_url in "https://nfc.alf-broadcast.co.uk"; do
             status="$(curl --silent --show-error --output /tmp/nfc-smoke-body --write-out '%{http_code}' \
               --request POST \
               --header 'content-type: application/json' \
@@ -203,7 +203,7 @@ jobs:
             fi
           done
 
-          echo 'NFC edge smoke checks passed: canonical and legacy domains both reached nfcscan and rejected the invalid API key.'
+          echo 'NFC edge smoke check passed: canonical domain reached nfcscan and rejected the invalid API key.'
 
       - name: Summarise deployment
         if: ${{ always() }}
@@ -212,7 +212,7 @@ jobs:
           echo "- AWS operation: \`${PLAN_ONLY}\` plan-only flag" >> "${GITHUB_STEP_SUMMARY}"
           if [[ "${PLAN_ONLY}" != "true" ]]; then
             echo '- Cloudflare: `nfcscan` deployed as part of the normal NFC production deployment.' >> "${GITHUB_STEP_SUMMARY}"
-            echo '- Edge smoke: bad API keys verified on canonical and legacy public domains.' >> "${GITHUB_STEP_SUMMARY}"
+            echo '- Edge smoke: bad API key verified on the canonical public domain.' >> "${GITHUB_STEP_SUMMARY}"
             echo '- Positive Worker -> Lambda -> SQS -> consumer validation uses a real NFC client, matching the recordings ingress model.' >> "${GITHUB_STEP_SUMMARY}"
           else
             echo '- Cloudflare: not mutated during plan-only execution.' >> "${GITHUB_STEP_SUMMARY}"

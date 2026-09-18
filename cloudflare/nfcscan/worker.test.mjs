@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import worker, { ALLOWED_HOSTS, CANONICAL_HOST, computeLegacySlackSignature } from "./worker.js";
 
-const LEGACY_HOST = "awsnfcscan.alf1000.uk";
+const RETIRED_HOST = "awsnfcscan.alf1000.uk";
 
 const baseEnv = {
   CF_NFC_API_KEY: "nfc-key",
@@ -24,27 +24,17 @@ function nfcRequest(body = { realm: "nfc", subject: "device-1" }, options = {}) 
   });
 }
 
-test("Phase A keeps canonical and legacy hostnames in the allow-list", () => {
+test("Phase B allows only the canonical NFC hostname", () => {
   assert.equal(CANONICAL_HOST, "nfc.alf-broadcast.co.uk");
-  assert.deepEqual([...ALLOWED_HOSTS].sort(), [
-    "awsnfcscan.alf1000.uk",
-    "nfc.alf-broadcast.co.uk",
-  ]);
+  assert.deepEqual([...ALLOWED_HOSTS], ["nfc.alf-broadcast.co.uk"]);
 });
 
-test("keeps the legacy hostname working during Phase A", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response("ok", { status: 200 });
-
-  try {
-    const response = await worker.fetch(
-      nfcRequest(undefined, { url: `https://${LEGACY_HOST}/scan` }),
-      baseEnv,
-    );
-    assert.equal(response.status, 200);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+test("rejects the retired alf1000.uk compatibility hostname", async () => {
+  const response = await worker.fetch(
+    nfcRequest(undefined, { url: `https://${RETIRED_HOST}/scan` }),
+    baseEnv,
+  );
+  assert.equal(response.status, 400);
 });
 
 test("forwards valid NFC requests and preserves downstream response/status", async () => {
@@ -104,7 +94,7 @@ test("accepts realm from query while keeping the original body", async () => {
   }
 });
 
-test("accepts an allowed hostname when a non-default port is present", async () => {
+test("accepts the canonical hostname when a non-default port is present", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("ok", { status: 200 });
 
