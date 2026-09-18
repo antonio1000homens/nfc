@@ -190,6 +190,21 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Run the harmless authenticated probe first. This intentionally avoids
+          # priming Cloudflare bot heuristics with several rapid curl requests
+          # before validating the real NFC authentication path.
+          status="$(curl --silent --show-error --output /tmp/nfc-smoke-body --write-out '%{http_code}' \
+            --request POST \
+            --header 'content-type: application/json' \
+            --header "x-api-key: ${CF_NFC_API_KEY}" \
+            --data '{"realm":"nfc"}' \
+            'https://awsnfcscan.alf1000.uk/')"
+          if [[ "${status}" != "400" ]]; then
+            echo "Expected first-request authenticated NFC probe to reach Lambda and return 400, got ${status}." >&2
+            cat /tmp/nfc-smoke-body >&2 || true
+            exit 1
+          fi
+
           for base_url in "https://nfc.alf-broadcast.co.uk" "https://awsnfcscan.alf1000.uk"; do
             status="$(curl --silent --show-error --output /tmp/nfc-smoke-body --write-out '%{http_code}' \
               --request POST \
@@ -204,19 +219,7 @@ jobs:
             fi
           done
 
-          status="$(curl --silent --show-error --output /tmp/nfc-smoke-body --write-out '%{http_code}' \
-            --request POST \
-            --header 'content-type: application/json' \
-            --header "x-api-key: ${CF_NFC_API_KEY}" \
-            --data '{"realm":"nfc"}' \
-            'https://awsnfcscan.alf1000.uk/')"
-          if [[ "${status}" != "400" ]]; then
-            echo "Expected authenticated no-subject smoke request to reach Lambda and return 400, got ${status}." >&2
-            cat /tmp/nfc-smoke-body >&2 || true
-            exit 1
-          fi
-
-          echo 'NFC Worker smoke checks passed for both domains; authenticated legacy-domain Worker -> Lambda forwarding also passed.'
+          echo 'NFC Worker smoke checks passed: authenticated first request reached Lambda and both domains enforce Worker API-key validation.'
 
       - name: Summarise deployment
         if: ${{ always() }}
