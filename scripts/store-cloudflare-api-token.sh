@@ -11,7 +11,9 @@ if [[ -t 0 ]]; then
   read -r -s -p 'Dedicated NFC Cloudflare API token: ' token
   printf '\n' >&2
 else
-  IFS= read -r token
+  # `pbpaste` commonly provides a final unterminated line. Preserve that
+  # value instead of treating read's EOF status as a script failure.
+  IFS= read -r token || [[ -n "${token:-}" ]]
 fi
 
 if [[ -z "${token}" ]]; then
