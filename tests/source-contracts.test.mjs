@@ -28,7 +28,7 @@ test('runtime layer decrypts SSM values and requires parameter-name environment 
   assert.doesNotMatch(source, /put-parameter|PutParameter/);
 });
 
-test('normal deployment never retrieves or writes secret plaintext', async () => {
+test('normal deployment never retrieves or writes Lambda runtime secret plaintext', async () => {
   const source = await read('deploy.sh');
   assert.doesNotMatch(source, /ssm\s+(get-parameter|put-parameter)/);
   assert.doesNotMatch(source, /\bREQUIRED_API_KEY=/);
@@ -38,13 +38,16 @@ test('normal deployment never retrieves or writes secret plaintext', async () =>
   assert.match(source, /GOOGLE_SERVICE_ACCOUNT_PARAMETER/);
 });
 
-test('production workflow uses OIDC and contains no Bitwarden dependency', async () => {
+test('production workflow uses OIDC and SSM without Bitwarden or GitHub secret values', async () => {
   const source = await read('.github/workflows/deploy.yml');
   assert.match(source, /environment:\s*production/);
   assert.match(source, /id-token:\s*write/);
   assert.match(source, /vars\.AWS_ROLE_TO_ASSUME/);
   assert.match(source, /workflow_run:/);
-  assert.doesNotMatch(source, /bitwarden|BWS_|secrets\./i);
+  assert.match(source, /scripts\/load-ssm-secrets\.sh cloudflare/);
+  assert.match(source, /CLOUDFLARE_DEPLOY_ENABLED/);
+  assert.doesNotMatch(source, /bitwarden|BWS_/i);
+  assert.doesNotMatch(source, /\$\{\{\s*secrets\./i);
 });
 
 test('CloudFormation preserves retained queue and current SSM parameter names', async () => {
@@ -54,4 +57,14 @@ test('CloudFormation preserves retained queue and current SSM parameter names', 
   assert.match(source, /\/lambdas\/nfc\/required-api-key/);
   assert.match(source, /\/lambdas\/nfc\/sqs2nfc\/google-service-account/);
   assert.match(source, /\/lambdas\/shared\/slack-bot-token/);
+});
+
+
+test('Phase A Cloudflare config keeps both hostnames until cutover completes', async () => {
+  const worker = await read('cloudflare/nfcscan/worker.js');
+  const wrangler = await read('cloudflare/nfcscan/wrangler.toml');
+  assert.match(worker, /nfc\.alf-broadcast\.co\.uk/);
+  assert.match(worker, /awsnfcscan\.alf1000\.uk/);
+  assert.match(wrangler, /nfc\.alf-broadcast\.co\.uk/);
+  assert.match(wrangler, /awsnfcscan\.alf1000\.uk/);
 });
