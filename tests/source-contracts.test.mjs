@@ -58,3 +58,13 @@ test('CloudFormation preserves retained queue and current SSM parameter names', 
   assert.match(source, /\/lambdas\/nfc\/sqs2nfc\/google-service-account/);
   assert.match(source, /\/lambdas\/shared\/slack-bot-token/);
 });
+
+
+test('Phase A Cloudflare config keeps both hostnames until cutover completes', async () => {
+  const worker = await read('cloudflare/nfcscan/worker.js');
+  const wrangler = await read('cloudflare/nfcscan/wrangler.toml');
+  assert.match(worker, /nfc\.alf-broadcast\.co\.uk/);
+  assert.match(worker, /awsnfcscan\.alf1000\.uk/);
+  assert.match(wrangler, /nfc\.alf-broadcast\.co\.uk/);
+  assert.match(wrangler, /awsnfcscan\.alf1000\.uk/);
+});
