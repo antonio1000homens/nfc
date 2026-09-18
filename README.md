@@ -231,6 +231,21 @@ Likewise, remove the old NFC AWS ownership from the `lambdas` monorepo only afte
 
 ## Direct AWS deployment
 
+### Repair an existing Google service-account parameter
+
+The deployed `sqs2nfc` consumer expects the canonical Google service-account
+JSON object in SSM. If an older migration stored base64-encoded JSON instead,
+run this one-time repair from an authenticated AWS shell. The helper validates
+and rewrites the existing parameter without printing the credential:
+
+```bash
+AWS_PROFILE=windsor AWS_DEFAULT_REGION=eu-west-2 \
+  bash scripts/normalize-google-service-account-ssm.sh
+```
+
+Verify only the parameter metadata afterwards; do not retrieve or print its
+value.
+
 `deploy.sh` is usable from an authenticated shell. It accepts only deployment configuration and SSM parameter *names*; runtime secret values are not inputs.
 
 ```bash
