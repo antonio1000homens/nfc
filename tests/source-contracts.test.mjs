@@ -45,7 +45,8 @@ test('production workflow uses OIDC and SSM without Bitwarden or GitHub secret v
   assert.match(source, /vars\.AWS_ROLE_TO_ASSUME/);
   assert.match(source, /workflow_run:/);
   assert.match(source, /scripts\/load-ssm-secrets\.sh cloudflare/);
-  assert.match(source, /CLOUDFLARE_DEPLOY_ENABLED/);
+  assert.match(source, /CLOUDFLARE_ACCOUNT_ID/);
+  assert.doesNotMatch(source, /CLOUDFLARE_DEPLOY_ENABLED/);
   assert.doesNotMatch(source, /bitwarden|BWS_/i);
   assert.doesNotMatch(source, /\$\{\{\s*secrets\./i);
 });

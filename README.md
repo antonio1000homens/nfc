@@ -10,7 +10,7 @@ The production flow is:
 NFC client / Slack-originated request
         |
         v
-https://awsnfcscan.alf1000.uk
+https://nfc.alf-broadcast.co.uk\n        |\n        +-- compatibility alias: https://awsnfcscan.alf1000.uk
         |
         v
 Cloudflare Worker: nfcscan
@@ -60,7 +60,7 @@ Normal AWS deployments never retrieve the Google service account or Slack bot to
 
 ## Cloudflare configuration
 
-The `nfcscan` Worker owns only `awsnfcscan.alf1000.uk`. Its deployment uses the same GitHub OIDC AWS session as the application deployment and loads only these SSM values:
+The `nfcscan` Worker owns the canonical `nfc.alf-broadcast.co.uk` custom domain and retains `awsnfcscan.alf1000.uk` as a compatibility alias during cutover. Its deployment uses the same GitHub OIDC AWS session as the application deployment and loads only these SSM values:
 
 - `CF_NFC_API_KEY` from `/lambdas/nfc/required-api-key`;
 - `AWS2022_SIGNING_SECRET` from `/lambdas/aws2022-slack-handler/slack-signing-secret`;
@@ -178,7 +178,7 @@ The default target is the SSM SecureString `/nfc/cloudflare/api-token`. Set `CLO
 
 ### Cloudflare cutover gate
 
-Cloudflare mutation is intentionally **disabled by default**. Before enabling it, audit the live Cloudflare account and record resource IDs/configuration only, never secret values. Confirm at minimum:
+Cloudflare deployment is now part of the normal tested production deployment, following the same repository-owned deployment pattern as `recordings`. Before enabling it, audit the live Cloudflare account and record resource IDs/configuration only, never secret values. Confirm at minimum:
 
 - the Worker/service currently serving `nfcscan`;
 - custom-domain/route and DNS ownership for `awsnfcscan.alf1000.uk`;
@@ -191,7 +191,6 @@ Then configure the protected `production` environment:
 - `CLOUDFLARE_ACCOUNT_ID` — non-secret account identifier;
 - `CLOUDFLARE_API_TOKEN_PARAMETER` — optional, defaults to `/nfc/cloudflare/api-token`;
 - `SLACK_SIGNING_SECRET_PARAMETER` — optional, defaults to `/lambdas/aws2022-slack-handler/slack-signing-secret`;
-- `CLOUDFLARE_DEPLOY_ENABLED=true` — set **only after** the live audit and OIDC-role update are complete.
 
 When enabled on a real deployment (never a plan-only run), the workflow:
 
@@ -215,7 +214,7 @@ Shared `alf1000.uk` zone entry-point/WAF resources remain under their existing c
 
 ## Runtime verification and Windsor cleanup
 
-After the first NFC-owned Cloudflare deployment, verify both negative and positive paths:
+CI follows the `recordings` ingress pattern: it proves the Worker is deployed and that bad credentials are rejected at the edge, but it does not attempt to impersonate a production NFC client with an authenticated GitHub-hosted `curl`. Cloudflare bot classification can challenge such synthetic automation independently of Worker correctness.\n\nAfter deployment, verify the positive path with one real NFC client request:
 
 - missing/bad API key is rejected;
 - invalid `realm` is rejected;

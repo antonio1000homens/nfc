@@ -9,7 +9,7 @@ It preserves the production Worker name `nfcscan` and custom domain
 The Worker:
 
 - accepts `POST` and `PUT` requests only;
-- requires the `awsnfcscan.alf1000.uk` host;
+- accepts only the configured canonical/legacy NFC hosts (`nfc.alf-broadcast.co.uk` and `awsnfcscan.alf1000.uk`);
 - requires `x-api-key` to match `CF_NFC_API_KEY`;
 - validates the migrated Windsor Slack-signature contract when Slack signature
   headers are present;
@@ -60,12 +60,11 @@ Merging this code does **not** immediately transfer the production custom domain
 Cloudflare deployment is skipped until the protected GitHub `production`
 environment contains:
 
-- `CLOUDFLARE_DEPLOY_ENABLED=true`;
 - `CLOUDFLARE_ACCOUNT_ID`;
 - `CLOUDFLARE_API_TOKEN_PARAMETER` if the default SSM path is not used;
 - `SLACK_SIGNING_SECRET_PARAMETER` if the canonical shared path is overridden.
 
-Before setting `CLOUDFLARE_DEPLOY_ENABLED=true`, audit the live Cloudflare account
+Before first ownership cutover, audit the live Cloudflare account
 and confirm:
 
 1. `nfcscan` is the Worker currently serving `awsnfcscan.alf1000.uk`;
@@ -95,8 +94,7 @@ the Worker cutover.
    SecureString (see the main README).
 2. Audit live Worker/custom-domain/DNS/Access/WAF ownership without recording
    secret values.
-3. Enable `CLOUDFLARE_DEPLOY_ENABLED` in the protected production environment.
-4. Run the production deploy workflow. It deploys AWS first, resolves the live
+3. Run the production deploy workflow. It deploys AWS first, resolves the live
    Function URL, loads only the required Cloudflare values from SSM, syncs Worker
    secrets, and deploys `nfcscan` with the same custom domain.
 5. Verify bad API keys are rejected and a valid NFC request reaches Lambda -> SQS

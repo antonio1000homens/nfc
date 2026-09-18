@@ -59,7 +59,6 @@ jobs:
       REQUIRED_API_KEY_PARAMETER: ${{ vars.REQUIRED_API_KEY_PARAMETER || '/lambdas/nfc/required-api-key' }}
       SLACK_BOT_TOKEN_PARAMETER: ${{ vars.SLACK_BOT_TOKEN_PARAMETER || '/lambdas/shared/slack-bot-token' }}
       GOOGLE_SERVICE_ACCOUNT_PARAMETER: ${{ vars.GOOGLE_SERVICE_ACCOUNT_PARAMETER || '/lambdas/nfc/sqs2nfc/google-service-account' }}
-      CLOUDFLARE_DEPLOY_ENABLED: 'true'
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN_PARAMETER: ${{ vars.CLOUDFLARE_API_TOKEN_PARAMETER || '/nfc/cloudflare/api-token' }}
       SLACK_SIGNING_SECRET_PARAMETER: ${{ vars.SLACK_SIGNING_SECRET_PARAMETER || '/lambdas/aws2022-slack-handler/slack-signing-secret' }}
@@ -92,15 +91,9 @@ jobs:
           test -n "${AWS_ROLE_TO_ASSUME}" || { echo 'AWS_ROLE_TO_ASSUME must be configured in the production environment.' >&2; exit 1; }
           test -n "${CODE_BUCKET}" || { echo 'CODE_BUCKET must be configured in the production environment.' >&2; exit 1; }
           test -n "${SPREADSHEET_ID}" || { echo 'SPREADSHEET_ID must be configured in the production environment.' >&2; exit 1; }
-          case "${CLOUDFLARE_DEPLOY_ENABLED}" in
-            true|false) ;;
-            *) echo 'CLOUDFLARE_DEPLOY_ENABLED must be true or false.' >&2; exit 1 ;;
-          esac
-          if [[ "${CLOUDFLARE_DEPLOY_ENABLED}" == "true" ]]; then
-            test -n "${CLOUDFLARE_ACCOUNT_ID}" || { echo 'CLOUDFLARE_ACCOUNT_ID is required when Cloudflare deployment is enabled.' >&2; exit 1; }
-            test -n "${CLOUDFLARE_API_TOKEN_PARAMETER}" || { echo 'CLOUDFLARE_API_TOKEN_PARAMETER must not be empty.' >&2; exit 1; }
-            test -n "${SLACK_SIGNING_SECRET_PARAMETER}" || { echo 'SLACK_SIGNING_SECRET_PARAMETER must not be empty.' >&2; exit 1; }
-          fi
+          test -n "${CLOUDFLARE_ACCOUNT_ID}" || { echo 'CLOUDFLARE_ACCOUNT_ID is required for NFC Worker deployment.' >&2; exit 1; }
+          test -n "${CLOUDFLARE_API_TOKEN_PARAMETER}" || { echo 'CLOUDFLARE_API_TOKEN_PARAMETER must not be empty.' >&2; exit 1; }
+          test -n "${SLACK_SIGNING_SECRET_PARAMETER}" || { echo 'SLACK_SIGNING_SECRET_PARAMETER must not be empty.' >&2; exit 1; }
 
       - name: Download CI-tested build
         if: ${{ github.event_name == 'workflow_run' }}
@@ -154,11 +147,11 @@ jobs:
         run: bash ./deploy.sh
 
       - name: Test nfcscan Worker for exact deployment revision
-        if: ${{ env.PLAN_ONLY != 'true' && env.CLOUDFLARE_DEPLOY_ENABLED == 'true' }}
+        if: ${{ env.PLAN_ONLY != 'true' }}
         run: node --test cloudflare/nfcscan/worker.test.mjs
 
       - name: Resolve deployed nfc2sqs Function URL
-        if: ${{ env.PLAN_ONLY != 'true' && env.CLOUDFLARE_DEPLOY_ENABLED == 'true' }}
+        if: ${{ env.PLAN_ONLY != 'true' }}
         run: |
           set -euo pipefail
           url="$(aws cloudformation describe-stacks \
@@ -170,11 +163,11 @@ jobs:
           echo "NFC2SQS_URL=${url}" >> "${GITHUB_ENV}"
 
       - name: Load Cloudflare deployment secrets from SSM
-        if: ${{ env.PLAN_ONLY != 'true' && env.CLOUDFLARE_DEPLOY_ENABLED == 'true' }}
+        if: ${{ env.PLAN_ONLY != 'true' }}
         run: bash scripts/load-ssm-secrets.sh cloudflare
 
       - name: Validate nfcscan deployment against production configuration
-        if: ${{ env.PLAN_ONLY != 'true' && env.CLOUDFLARE_DEPLOY_ENABLED == 'true' }}
+        if: ${{ env.PLAN_ONLY != 'true' }}
         run: >-
           npx --yes wrangler@4 deploy
           --config cloudflare/nfcscan/wrangler.toml
@@ -182,29 +175,20 @@ jobs:
           --var "NFC2SQS_URL:${NFC2SQS_URL}"
 
       - name: Deploy nfcscan Worker and custom domain
-        if: ${{ env.PLAN_ONLY != 'true' && env.CLOUDFLARE_DEPLOY_ENABLED == 'true' }}
+        if: ${{ env.PLAN_ONLY != 'true' }}
         run: bash cloudflare/nfcscan/deploy-ci.sh
 
-      - name: Smoke test deployed NFC Worker
-        if: ${{ env.PLAN_ONLY != 'true' && env.CLOUDFLARE_DEPLOY_ENABLED == 'true' }}
+      - name: Smoke test deployed NFC Worker edge authentication
+        if: ${{ env.PLAN_ONLY != 'true' }}
         run: |
           set -euo pipefail
 
-          # Run the harmless authenticated probe first. This intentionally avoids
-          # priming Cloudflare bot heuristics with several rapid curl requests
-          # before validating the real NFC authentication path.
-          status="$(curl --silent --show-error --output /tmp/nfc-smoke-body --write-out '%{http_code}' \
-            --request POST \
-            --header 'content-type: application/json' \
-            --header "x-api-key: ${CF_NFC_API_KEY}" \
-            --data '{"realm":"nfc"}' \
-            'https://awsnfcscan.alf1000.uk/')"
-          if [[ "${status}" != "400" ]]; then
-            echo "Expected first-request authenticated NFC probe to reach Lambda and return 400, got ${status}." >&2
-            cat /tmp/nfc-smoke-body >&2 || true
-            exit 1
-          fi
-
+          # Match the recordings ingress model: CI proves that the public Worker
+          # is deployed and rejects unauthorised machine traffic at the edge.
+          # A real device/client invocation is the production end-to-end gate;
+          # GitHub-hosted curl is deliberately not used to simulate an
+          # authenticated NFC client because Cloudflare bot classification can
+          # challenge synthetic automation independently of Worker correctness.
           for base_url in "https://nfc.alf-broadcast.co.uk" "https://awsnfcscan.alf1000.uk"; do
             status="$(curl --silent --show-error --output /tmp/nfc-smoke-body --write-out '%{http_code}' \
               --request POST \
@@ -219,15 +203,17 @@ jobs:
             fi
           done
 
-          echo 'NFC Worker smoke checks passed: authenticated first request reached Lambda and both domains enforce Worker API-key validation.'
+          echo 'NFC edge smoke checks passed: canonical and legacy domains both reached nfcscan and rejected the invalid API key.'
 
       - name: Summarise deployment
         if: ${{ always() }}
         run: |
           echo '### NFC deployment' >> "${GITHUB_STEP_SUMMARY}"
           echo "- AWS operation: \`${PLAN_ONLY}\` plan-only flag" >> "${GITHUB_STEP_SUMMARY}"
-          if [[ "${CLOUDFLARE_DEPLOY_ENABLED}" == "true" && "${PLAN_ONLY}" != "true" ]]; then
-            echo '- Cloudflare: `nfcscan` deployment enabled for this run.' >> "${GITHUB_STEP_SUMMARY}"
+          if [[ "${PLAN_ONLY}" != "true" ]]; then
+            echo '- Cloudflare: `nfcscan` deployed as part of the normal NFC production deployment.' >> "${GITHUB_STEP_SUMMARY}"
+            echo '- Edge smoke: bad API keys verified on canonical and legacy public domains.' >> "${GITHUB_STEP_SUMMARY}"
+            echo '- Positive Worker -> Lambda -> SQS -> consumer validation uses a real NFC client, matching the recordings ingress model.' >> "${GITHUB_STEP_SUMMARY}"
           else
-            echo '- Cloudflare: not mutated (disabled or plan-only).' >> "${GITHUB_STEP_SUMMARY}"
+            echo '- Cloudflare: not mutated during plan-only execution.' >> "${GITHUB_STEP_SUMMARY}"
           fi
