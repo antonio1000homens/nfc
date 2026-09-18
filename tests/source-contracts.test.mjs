@@ -65,13 +65,17 @@ test('CloudFormation preserves retained queue and current SSM parameter names', 
 });
 
 
-test('Phase A Cloudflare config keeps both hostnames until cutover completes', async () => {
+test('Phase B Cloudflare config contains only the canonical NFC hostname', async () => {
   const worker = await read('cloudflare/nfcscan/worker.js');
   const wrangler = await read('cloudflare/nfcscan/wrangler.toml');
+  const workflow = await read('.github/workflows/deploy.yml');
+
   assert.match(worker, /nfc\.alf-broadcast\.co\.uk/);
-  assert.match(worker, /awsnfcscan\.alf1000\.uk/);
+  assert.doesNotMatch(worker, /awsnfcscan\.alf1000\.uk/);
   assert.match(wrangler, /nfc\.alf-broadcast\.co\.uk/);
-  assert.match(wrangler, /awsnfcscan\.alf1000\.uk/);
+  assert.doesNotMatch(wrangler, /awsnfcscan\.alf1000\.uk[^\n]*custom_domain/);
+  assert.match(workflow, /https:\/\/nfc\.alf-broadcast\.co\.uk/);
+  assert.doesNotMatch(workflow, /https:\/\/awsnfcscan\.alf1000\.uk/);
 });
 
 test('SSM bootstrap normalises Google service-account JSON before storing it', async () => {
