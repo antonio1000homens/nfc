@@ -191,7 +191,6 @@ Then configure the protected `production` environment:
 - `CLOUDFLARE_ACCOUNT_ID` — non-secret account identifier;
 - `CLOUDFLARE_API_TOKEN_PARAMETER` — optional, defaults to `/nfc/cloudflare/api-token`;
 - `SLACK_SIGNING_SECRET_PARAMETER` — optional, defaults to `/lambdas/aws2022-slack-handler/slack-signing-secret`;
-- `CLOUDFLARE_DEPLOY_ENABLED=true` — set **only after** the live audit and OIDC-role update are complete.
 
 When enabled on a real deployment (never a plan-only run), the workflow:
 
