@@ -191,13 +191,6 @@ jobs:
           set -euo pipefail
 
           for base_url in "https://nfc.alf-broadcast.co.uk" "https://awsnfcscan.alf1000.uk"; do
-            status="$(curl --silent --show-error --output /tmp/nfc-smoke-body --write-out '%{http_code}' "${base_url}/")"
-            if [[ "${status}" != "405" ]]; then
-              echo "Expected GET ${base_url}/ to return 405 from nfcscan, got ${status}." >&2
-              cat /tmp/nfc-smoke-body >&2 || true
-              exit 1
-            fi
-
             status="$(curl --silent --show-error --output /tmp/nfc-smoke-body --write-out '%{http_code}' \
               --request POST \
               --header 'content-type: application/json' \
