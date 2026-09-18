@@ -77,3 +77,12 @@ test('SSM bootstrap normalises Google service-account JSON before storing it', a
   assert.match(source, /--rawfile value/);
   assert.match(source, /normalised JSON/);
 });
+
+
+test('temporary Google credential normalizer is isolated to sqs2nfc maintenance invocation', async () => {
+  const source = await read('sqs2nfc/sqs2nfc.mjs');
+  assert.match(source, /normalizeGoogleServiceAccountParameter/);
+  assert.match(source, /PutParameterCommand/);
+  assert.match(source, /event\?\.operation === 'normalizeGoogleServiceAccountParameter'/);
+  assert.match(source, /KeyId:\s*'alias\/aws\/ssm'/);
+});
