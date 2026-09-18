@@ -59,7 +59,7 @@ jobs:
       REQUIRED_API_KEY_PARAMETER: ${{ vars.REQUIRED_API_KEY_PARAMETER || '/lambdas/nfc/required-api-key' }}
       SLACK_BOT_TOKEN_PARAMETER: ${{ vars.SLACK_BOT_TOKEN_PARAMETER || '/lambdas/shared/slack-bot-token' }}
       GOOGLE_SERVICE_ACCOUNT_PARAMETER: ${{ vars.GOOGLE_SERVICE_ACCOUNT_PARAMETER || '/lambdas/nfc/sqs2nfc/google-service-account' }}
-      CLOUDFLARE_DEPLOY_ENABLED: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED || 'false' }}
+      CLOUDFLARE_DEPLOY_ENABLED: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED || 'true' }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN_PARAMETER: ${{ vars.CLOUDFLARE_API_TOKEN_PARAMETER || '/nfc/cloudflare/api-token' }}
       SLACK_SIGNING_SECRET_PARAMETER: ${{ vars.SLACK_SIGNING_SECRET_PARAMETER || '/lambdas/aws2022-slack-handler/slack-signing-secret' }}
