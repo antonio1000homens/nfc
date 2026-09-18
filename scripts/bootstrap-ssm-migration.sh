@@ -210,10 +210,50 @@ put_secret_parameter() {
   unset value
   echo "Stored ${parameter_name}"
 }
+decode_base64_stdin() {
+  if printf '' | base64 --decode >/dev/null 2>&1; then
+    base64 --decode
+  elif printf '' | base64 -D >/dev/null 2>&1; then
+    base64 -D
+  else
+    echo 'Unable to find a supported base64 decode option.' >&2
+    return 1
+  fi
+}
+
+put_google_service_account_parameter() {
+  local parameter_name="$1"
+  local secret_id="$2"
+  local tier="$3"
+  local raw_file normalized_file request_file
+
+  raw_file="$(mktemp "${secret_request_dir}/google-sa-raw.XXXXXX")"
+  normalized_file="$(mktemp "${secret_request_dir}/google-sa-json.XXXXXX")"
+  request_file="$(mktemp "${secret_request_dir}/put-google-sa.XXXXXX")"
+  chmod 600 "${raw_file}" "${normalized_file}" "${request_file}"
+
+  bws secret get "${secret_id}" --output json | jq -er '.value' > "${raw_file}"
+  [[ -s "${raw_file}" ]] || { echo "Bitwarden returned an empty Google service account value." >&2; exit 1; }
+
+  if jq -ce . "${raw_file}" > "${normalized_file}" 2>/dev/null; then
+    :
+  elif decode_base64_stdin < "${raw_file}" | jq -ce . > "${normalized_file}" 2>/dev/null; then
+    :
+  else
+    echo 'Google service account secret is neither JSON nor base64-encoded JSON.' >&2
+    exit 1
+  fi
+
+  jq -n --arg name "${parameter_name}" --rawfile value "${normalized_file}" --arg tier "${tier}" \
+    '{Name:$name,Type:"SecureString",Tier:$tier,Value:$value,Overwrite:true}' > "${request_file}"
+  aws ssm put-parameter --region "${AWS_REGION}" --cli-input-json "file://${request_file}" >/dev/null
+  rm -f "${raw_file}" "${normalized_file}" "${request_file}"
+  echo "Stored ${parameter_name} as normalised JSON"
+}
 
 put_secret_parameter "${REQUIRED_API_KEY_PARAMETER}" "${BW_API_ID}" Standard
 put_secret_parameter "${SLACK_BOT_TOKEN_PARAMETER}" "${BW_SLACK_ID}" Standard
-put_secret_parameter "${GOOGLE_SERVICE_ACCOUNT_PARAMETER}" "${BW_GOOGLE_ID}" "${GOOGLE_SERVICE_ACCOUNT_PARAMETER_TIER}"
+put_google_service_account_parameter "${GOOGLE_SERVICE_ACCOUNT_PARAMETER}" "${BW_GOOGLE_ID}" "${GOOGLE_SERVICE_ACCOUNT_PARAMETER_TIER}"
 
 if [[ -z "${SPREADSHEET_ID}" ]]; then
   SPREADSHEET_ID="$(bws secret get "${BW_SPREADSHEET_ID}" --output json | jq -er '.value')"
