@@ -209,14 +209,14 @@ jobs:
             --header 'content-type: application/json' \
             --header "x-api-key: ${CF_NFC_API_KEY}" \
             --data '{"realm":"nfc"}' \
-            'https://nfc.alf-broadcast.co.uk/')"
+            'https://awsnfcscan.alf1000.uk/')"
           if [[ "${status}" != "400" ]]; then
             echo "Expected authenticated no-subject smoke request to reach Lambda and return 400, got ${status}." >&2
             cat /tmp/nfc-smoke-body >&2 || true
             exit 1
           fi
 
-          echo 'NFC Worker smoke checks passed for canonical + legacy domains and authenticated Worker -> Lambda forwarding.'
+          echo 'NFC Worker smoke checks passed for both domains; authenticated legacy-domain Worker -> Lambda forwarding also passed.'
 
       - name: Summarise deployment
         if: ${{ always() }}
