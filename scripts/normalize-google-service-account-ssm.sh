@@ -17,6 +17,12 @@ chmod 700 "${work_dir}"
 raw_file="${work_dir}/raw"
 json_file="${work_dir}/canonical.json"
 request_file="${work_dir}/put-parameter.json"
+# Create the files before tightening their permissions. `chmod` does not
+# create missing files, and macOS reports this as an error under `set -e`.
+umask 077
+: > "${raw_file}"
+: > "${json_file}"
+: > "${request_file}"
 chmod 600 "${raw_file}" "${json_file}" "${request_file}"
 
 aws ssm get-parameter \
