@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import worker, { computeLegacySlackSignature } from "./worker.js";
+import worker, { ALLOWED_HOSTS, CANONICAL_HOST, computeLegacySlackSignature } from "./worker.js";
 
-const baseEnv = {
+const LEGACY_HOST = "awsnfcscan.alf1000.uk";\n\nconst baseEnv = {
   CF_NFC_API_KEY: "nfc-key",
   AWS2022_SIGNING_SECRET: "signing-secret",
   NFC2SQS_URL: "https://lambda.example.test/",
@@ -15,12 +15,35 @@ function nfcRequest(body = { realm: "nfc", subject: "device-1" }, options = {}) 
     ...(options.headers || {}),
   });
 
-  return new Request(options.url || "https://awsnfcscan.alf1000.uk/scan", {
+  return new Request(options.url || `https://${CANONICAL_HOST}/scan`, {
     method: options.method || "POST",
     headers,
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 }
+
+test("Phase A keeps canonical and legacy hostnames in the allow-list", () => {
+  assert.equal(CANONICAL_HOST, "nfc.alf-broadcast.co.uk");
+  assert.deepEqual([...ALLOWED_HOSTS].sort(), [
+    "awsnfcscan.alf1000.uk",
+    "nfc.alf-broadcast.co.uk",
+  ]);
+});
+
+test("keeps the legacy hostname working during Phase A", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("ok", { status: 200 });
+
+  try {
+    const response = await worker.fetch(
+      nfcRequest(undefined, { url: `https://${LEGACY_HOST}/scan` }),
+      baseEnv,
+    );
+    assert.equal(response.status, 200);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("forwards valid NFC requests and preserves downstream response/status", async () => {
   const originalFetch = globalThis.fetch;
@@ -68,7 +91,7 @@ test("accepts realm from query while keeping the original body", async () => {
     const response = await worker.fetch(
       nfcRequest(
         { subject: "device-2" },
-        { url: "https://awsnfcscan.alf1000.uk/scan?realm=nfc" },
+        { url: `https://${CANONICAL_HOST}/scan?realm=nfc` },
       ),
       baseEnv,
     );
@@ -79,13 +102,13 @@ test("accepts realm from query while keeping the original body", async () => {
   }
 });
 
-test("accepts the production hostname when a non-default port is present", async () => {
+test("accepts an allowed hostname when a non-default port is present", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("ok", { status: 200 });
 
   try {
     const response = await worker.fetch(
-      nfcRequest(undefined, { url: "https://awsnfcscan.alf1000.uk:443/scan" }),
+      nfcRequest(undefined, { url: `https://${CANONICAL_HOST}:443/scan` }),
       baseEnv,
     );
     assert.equal(response.status, 200);
@@ -196,7 +219,7 @@ test("rejects invalid host, method, body and realm without forwarding", async ()
     );
     assert.equal(
       (await worker.fetch(
-        new Request("https://awsnfcscan.alf1000.uk/scan", {
+        new Request(`https://${CANONICAL_HOST}/scan`, {
           method: "GET",
           headers: { "x-api-key": "nfc-key" },
         }),
