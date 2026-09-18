@@ -3,12 +3,10 @@ main = "worker.js"
 compatibility_date = "2026-09-17"
 workers_dev = false
 
-# Phase A keeps the existing production hostname while introducing the new
-# canonical NFC hostname. Remove the legacy hostname only after cutover and
-# runtime validation are complete.
+# nfc.alf-broadcast.co.uk is the only production NFC custom domain.
+# The legacy awsnfcscan.alf1000.uk compatibility domain was retired in Phase B.
 # The Cloudflare account is supplied through CLOUDFLARE_ACCOUNT_ID in the
 # protected GitHub production environment rather than hard-coded here.
 routes = [
-  { pattern = "nfc.alf-broadcast.co.uk", custom_domain = true },
-  { pattern = "awsnfcscan.alf1000.uk", custom_domain = true }
+  { pattern = "nfc.alf-broadcast.co.uk", custom_domain = true }
 ]
