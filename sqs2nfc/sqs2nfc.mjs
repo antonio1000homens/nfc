@@ -10,12 +10,43 @@ const SHEET_NAME = 'ID';
 const SLACK_CHANNEL = process.env.NFC_SLACK_CHANNEL || "";
 let cachedServiceAccount = null;
 
+export function parseGoogleServiceAccountSecret(secretValue) {
+    const value = String(secretValue || '').trim();
+    if (!value) {
+        throw new Error('Google service account credential is empty');
+    }
+
+    const parseObject = (candidate) => {
+        const parsed = JSON.parse(candidate);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('Google service account credential must be a JSON object');
+        }
+        return parsed;
+    };
+
+    try {
+        return parseObject(value);
+    } catch {
+        // Legacy Bitwarden stored the service-account JSON as base64. The old
+        // monorepo deployment decoded it before writing SSM, while the first
+        // standalone bootstrap copied it verbatim. Accept both formats.
+    }
+
+    try {
+        return parseObject(Buffer.from(value, 'base64').toString('utf8'));
+    } catch {
+        throw new Error('Google service account credential is neither raw JSON nor base64-encoded JSON');
+    }
+}
+
 async function getGoogleServiceAccountJson() {
     if (cachedServiceAccount) {
         return cachedServiceAccount;
     }
 
-    cachedServiceAccount = JSON.parse(await getRequiredSecret('GOOGLE_SERVICE_ACCOUNT_PARAMETER'));
+    cachedServiceAccount = parseGoogleServiceAccountSecret(
+        await getRequiredSecret('GOOGLE_SERVICE_ACCOUNT_PARAMETER')
+    );
     return cachedServiceAccount;
 }
 
