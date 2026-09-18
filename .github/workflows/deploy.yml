@@ -185,6 +185,46 @@ jobs:
         if: ${{ env.PLAN_ONLY != 'true' && env.CLOUDFLARE_DEPLOY_ENABLED == 'true' }}
         run: bash cloudflare/nfcscan/deploy-ci.sh
 
+      - name: Smoke test deployed NFC Worker
+        if: ${{ env.PLAN_ONLY != 'true' && env.CLOUDFLARE_DEPLOY_ENABLED == 'true' }}
+        run: |
+          set -euo pipefail
+
+          for base_url in "https://nfc.alf-broadcast.co.uk" "https://awsnfcscan.alf1000.uk"; do
+            status="$(curl --silent --show-error --output /tmp/nfc-smoke-body --write-out '%{http_code}' "${base_url}/")"
+            if [[ "${status}" != "405" ]]; then
+              echo "Expected GET ${base_url}/ to return 405 from nfcscan, got ${status}." >&2
+              cat /tmp/nfc-smoke-body >&2 || true
+              exit 1
+            fi
+
+            status="$(curl --silent --show-error --output /tmp/nfc-smoke-body --write-out '%{http_code}' \
+              --request POST \
+              --header 'content-type: application/json' \
+              --header 'x-api-key: deliberately-invalid-smoke-key' \
+              --data '{"realm":"nfc"}' \
+              "${base_url}/")"
+            if [[ "${status}" != "403" ]]; then
+              echo "Expected bad-key POST ${base_url}/ to return 403 from nfcscan, got ${status}." >&2
+              cat /tmp/nfc-smoke-body >&2 || true
+              exit 1
+            fi
+          done
+
+          status="$(curl --silent --show-error --output /tmp/nfc-smoke-body --write-out '%{http_code}' \
+            --request POST \
+            --header 'content-type: application/json' \
+            --header "x-api-key: ${CF_NFC_API_KEY}" \
+            --data '{"realm":"nfc"}' \
+            'https://nfc.alf-broadcast.co.uk/')"
+          if [[ "${status}" != "400" ]]; then
+            echo "Expected authenticated no-subject smoke request to reach Lambda and return 400, got ${status}." >&2
+            cat /tmp/nfc-smoke-body >&2 || true
+            exit 1
+          fi
+
+          echo 'NFC Worker smoke checks passed for canonical + legacy domains and authenticated Worker -> Lambda forwarding.'
+
       - name: Summarise deployment
         if: ${{ always() }}
         run: |
