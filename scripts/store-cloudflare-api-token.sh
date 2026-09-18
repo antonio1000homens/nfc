@@ -19,23 +19,30 @@ if [[ -z "${token}" ]]; then
   exit 1
 fi
 
-request_file="$(mktemp)"
-chmod 600 "${request_file}"
-trap 'rm -f "${request_file}"' EXIT
+secret_dir="$(mktemp -d)"
+chmod 700 "${secret_dir}"
+token_file="${secret_dir}/token"
+request_file="${secret_dir}/request.json"
+trap 'rm -rf "${secret_dir}"' EXIT
+
+printf '%s' "${token}" > "${token_file}"
+chmod 600 "${token_file}"
+unset token
 
 jq -n \
   --arg name "${CLOUDFLARE_API_TOKEN_PARAMETER}" \
-  --arg value "${token}" \
+  --rawfile value "${token_file}" \
   '{Name:$name,Type:"SecureString",Tier:"Standard",Value:$value,Overwrite:true}' \
   > "${request_file}"
-unset token
+chmod 600 "${request_file}"
+rm -f "${token_file}"
 
 aws ssm put-parameter \
   --region "${AWS_REGION}" \
   --cli-input-json "file://${request_file}" \
   >/dev/null
 
-rm -f "${request_file}"
+rm -rf "${secret_dir}"
 trap - EXIT
 
 echo "Stored dedicated NFC Cloudflare deployment token at ${CLOUDFLARE_API_TOKEN_PARAMETER}."
