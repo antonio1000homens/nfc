@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { GoogleAuth } from 'google-auth-library';
 import https from 'https';
+import { SSMClient, PutParameterCommand } from '@aws-sdk/client-ssm';
 import { getRequiredSecret } from '/opt/nodejs/ssm-secrets.mjs';
 
 // Constants
@@ -9,6 +10,7 @@ const SHEET_NAME = 'ID';
 
 const SLACK_CHANNEL = process.env.NFC_SLACK_CHANNEL || "";
 let cachedServiceAccount = null;
+const ssmClient = new SSMClient({});
 
 export function parseGoogleServiceAccountSecret(secretValue) {
     const value = String(secretValue || '').trim();
@@ -37,6 +39,46 @@ export function parseGoogleServiceAccountSecret(secretValue) {
     } catch {
         throw new Error('Google service account credential is neither raw JSON nor base64-encoded JSON');
     }
+}
+
+async function normalizeGoogleServiceAccountParameter() {
+    const parameterName = (process.env.GOOGLE_SERVICE_ACCOUNT_PARAMETER || '').trim();
+    if (!parameterName) {
+        throw new Error('GOOGLE_SERVICE_ACCOUNT_PARAMETER is missing in environment variables');
+    }
+
+    const currentValue = String(
+        await getRequiredSecret('GOOGLE_SERVICE_ACCOUNT_PARAMETER')
+    ).trim();
+
+    try {
+        const parsed = JSON.parse(currentValue);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('Google service account credential must be a JSON object');
+        }
+        return { normalized: false, currentFormat: 'raw-json' };
+    } catch {
+        // Continue into the migration compatibility path below.
+    }
+
+    const parsed = parseGoogleServiceAccountSecret(currentValue);
+    const canonicalJson = JSON.stringify(parsed);
+
+    await ssmClient.send(new PutParameterCommand({
+        Name: parameterName,
+        Value: canonicalJson,
+        Type: 'SecureString',
+        KeyId: 'alias/aws/ssm',
+        Tier: 'Standard',
+        Overwrite: true
+    }));
+
+    cachedServiceAccount = parsed;
+    return {
+        normalized: true,
+        currentFormat: 'raw-json',
+        sizeBytes: Buffer.byteLength(canonicalJson, 'utf8')
+    };
 }
 
 async function getGoogleServiceAccountJson() {
@@ -296,6 +338,14 @@ async function sendToSlack(actionText, actionValue, deviceFound, deviceName, act
 }
 
 export async function lambdaHandler(event) {
+    if (event?.operation === 'normalizeGoogleServiceAccountParameter') {
+        const result = await normalizeGoogleServiceAccountParameter();
+        return {
+            statusCode: 200,
+            body: JSON.stringify(result)
+        };
+    }
+
     console.log("Lambda function invoked with event:", JSON.stringify(event));
     try {
         const records = event.Records || [];
