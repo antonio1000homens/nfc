@@ -19,6 +19,16 @@ if [[ -z "${token}" ]]; then
   exit 1
 fi
 
+# The Cloudflare dashboard sometimes gets copied with presentation text or
+# surrounding whitespace. Wrangler expects the raw token only.
+token="$(printf '%s' "${token}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+token="${token#Bearer }"
+token="${token#bearer }"
+if [[ -z "${token}" || "${token}" =~ [[:space:]] ]]; then
+  echo 'Cloudflare API token must be the raw single-line token.' >&2
+  exit 1
+fi
+
 secret_dir="$(mktemp -d)"
 chmod 700 "${secret_dir}"
 token_file="${secret_dir}/token"
