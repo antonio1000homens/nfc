@@ -1,8 +1,5 @@
 const CANONICAL_HOST = "nfc.alf-broadcast.co.uk";
-const ALLOWED_HOSTS = new Set([
-  CANONICAL_HOST,
-  "awsnfcscan.alf1000.uk",
-]);
+const ALLOWED_HOSTS = new Set([CANONICAL_HOST]);
 const ALLOWED_METHODS = new Set(["POST", "PUT"]);
 
 function jsonResponse(status, payload) {
@@ -14,7 +11,7 @@ function jsonResponse(status, payload) {
 
 // Windsor's existing nfcscan Worker uses SHA-256(secret + Slack basestring),
 // rather than Slack's HMAC-SHA256 scheme. Preserve that deployed contract for
-// the ownership cutover; change it only in a separately reviewed hardening.
+// now; change it only in a separately reviewed hardening.
 export async function computeLegacySlackSignature(signingSecret, timestamp, body = "") {
   const basestring = `v0:${timestamp}:${body}`;
   const hash = await crypto.subtle.digest(
